@@ -1,11 +1,13 @@
 from __future__ import annotations
 
 import argparse
+import json
 from pathlib import Path
 
 import pandas as pd
 
-from .pipeline import build_dataset, load_dataset, process_game, query_player_games
+from .dashboard import create_dashboard_app
+from .pipeline import build_dataset, get_dataset_metadata, load_dataset, process_game, query_player_games
 from .source import fetch_game_manifest, fetch_playbyplay
 from .transforms import inspect_playbyplay
 
@@ -16,6 +18,15 @@ def main() -> None:
 
     inspect_parser = subparsers.add_parser("inspect-game", help="Inspect raw play-by-play for one game")
     inspect_parser.add_argument("--game-id", required=True)
+
+    describe_parser = subparsers.add_parser("describe-datasets", help="Print dataset schema/version metadata")
+    describe_parser.add_argument("--out-dir", default="data")
+
+    serve_parser = subparsers.add_parser("serve-app", help="Run the local scoring explorer dashboard")
+    serve_parser.add_argument("--out-dir", default="data")
+    serve_parser.add_argument("--host", default="127.0.0.1")
+    serve_parser.add_argument("--port", type=int, default=8050)
+    serve_parser.add_argument("--debug", default="false")
 
     process_parser = subparsers.add_parser("process-game", help="Process one game and write outputs")
     process_parser.add_argument("--game-id", required=True)
@@ -64,6 +75,15 @@ def main() -> None:
         print()
         print("Sample apparent scoring rows:")
         print(inspection["sample_scoring_rows"].to_string(index=False))
+        return
+
+    if args.command == "describe-datasets":
+        print(json.dumps(get_dataset_metadata(args.out_dir), indent=2, sort_keys=True))
+        return
+
+    if args.command == "serve-app":
+        app = create_dashboard_app(args.out_dir)
+        app.run(host=args.host, port=args.port, debug=_parse_bool(args.debug))
         return
 
     if args.command == "process-game":

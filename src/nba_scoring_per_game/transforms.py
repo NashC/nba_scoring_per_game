@@ -8,11 +8,21 @@ import pandas as pd
 SCORING_ACTION_TYPES = {"Made Shot", "Free Throw"}
 COMPETITIVE_MARGIN_THRESHOLD = 10
 BURST_WINDOW_SECONDS = (60, 120, 180, 300, 600)
+MATCHUP_CONTEXT_COLUMNS = [
+    "home_team_id",
+    "home_team_tricode",
+    "away_team_id",
+    "away_team_tricode",
+    "is_home_team",
+    "opponent_team_id",
+    "opponent_team_tricode",
+]
 RAW_SCORING_COLUMNS = [
     "season",
     "season_type",
     "game_date",
     "game_id",
+    *MATCHUP_CONTEXT_COLUMNS,
     "action_number",
     "action_id",
     "player_id",
@@ -76,9 +86,12 @@ SUMMARY_COLUMNS = [
     "player_name",
     "team_id",
     "team_tricode",
+    *MATCHUP_CONTEXT_COLUMNS,
     "final_points",
     "num_scoring_events",
     "max_cumulative_points",
+    "final_player_team_score",
+    "final_opponent_score",
     "final_player_team_margin",
     "avg_margin_during_scoring_events",
     "median_margin_during_scoring_events",
@@ -124,6 +137,7 @@ QUARTER_SUMMARY_COLUMNS = [
     "player_name",
     "team_id",
     "team_tricode",
+    *MATCHUP_CONTEXT_COLUMNS,
     "quarter_number",
     "quarter_label",
     "is_overtime_quarter",
@@ -155,6 +169,7 @@ HALF_SUMMARY_COLUMNS = [
     "player_name",
     "team_id",
     "team_tricode",
+    *MATCHUP_CONTEXT_COLUMNS,
     "half_index",
     "half_label",
     "half_points",
@@ -185,6 +200,7 @@ BURST_SUMMARY_COLUMNS = [
     "player_name",
     "team_id",
     "team_tricode",
+    *MATCHUP_CONTEXT_COLUMNS,
     "burst_window_seconds",
     "burst_window_label",
     "points_in_window",
@@ -209,6 +225,13 @@ BURST_SUMMARY_COLUMNS = [
     "share_points_from_2s",
     "share_points_from_3s",
     "share_points_from_fts",
+]
+BURST_TIMELINE_COLUMNS = TIMELINE_COLUMNS + [
+    "burst_elapsed_seconds",
+    "burst_elapsed_minutes",
+    "burst_cumulative_points",
+    "burst_window_seconds",
+    "burst_window_label",
 ]
 METADATA_COLUMNS = ["season", "season_type", "game_date"]
 CLOCK_PATTERN = re.compile(r"^PT(?:(?P<minutes>\d+)M)?(?:(?P<seconds>\d+(?:\.\d+)?)S)?$")
@@ -402,6 +425,7 @@ def extract_scoring_events(
     scoring["sub_type"] = scoring["subType"].fillna("").astype(str)
     scoring["description"] = scoring["description"].fillna("").astype(str)
     scoring["location"] = scoring["location"].fillna("").astype(str).str.lower()
+    scoring = _ensure_matchup_context_columns(scoring)
 
     result = scoring[RAW_SCORING_COLUMNS].sort_values(["game_id", "action_id"]).reset_index(drop=True)
     return _ensure_metadata_columns(result, season=season, season_type=season_type, game_date=game_date)
@@ -410,9 +434,9 @@ def extract_scoring_events(
 def add_game_time_columns(scoring_events_df: pd.DataFrame) -> pd.DataFrame:
     """Add forward-moving and normalized game/quarter/half time columns."""
     if scoring_events_df.empty:
-        return _ensure_metadata_columns(scoring_events_df.copy())
+        return _ensure_matchup_context_columns(_ensure_metadata_columns(scoring_events_df.copy()))
 
-    df = _ensure_metadata_columns(scoring_events_df.copy())
+    df = _ensure_matchup_context_columns(_ensure_metadata_columns(scoring_events_df.copy()))
     _require_columns(df, ["game_id", "period", "clock"])
     df["seconds_remaining_in_period"] = df["clock"].map(parse_clock_to_seconds_remaining)
     df["period_duration_seconds"] = df["period"].map(_period_duration_seconds).astype(float)
@@ -480,9 +504,9 @@ def add_score_context_columns(
 ) -> pd.DataFrame:
     """Add scorer-perspective score differential context columns."""
     if scoring_events_df.empty:
-        return _ensure_metadata_columns(scoring_events_df.copy())
+        return _ensure_matchup_context_columns(_ensure_metadata_columns(scoring_events_df.copy()))
 
-    df = _ensure_metadata_columns(scoring_events_df.copy())
+    df = _ensure_matchup_context_columns(_ensure_metadata_columns(scoring_events_df.copy()))
     _require_columns(
         df,
         ["game_id", "action_id", "score_home", "score_away", "point_value", "is_field_goal", "location", "description"],
@@ -519,7 +543,7 @@ def build_player_scoring_timeline(
     game_id: str | None = None,
 ) -> pd.DataFrame:
     """Build a chart-ready cumulative scoring timeline with normalized analytics fields."""
-    df = _ensure_metadata_columns(scoring_events_df.copy())
+    df = _ensure_matchup_context_columns(_ensure_metadata_columns(scoring_events_df.copy()))
     _require_columns(df, ["game_id", "action_id", "player_id", "player_name", "point_value"])
     if "seconds_remaining_in_period" not in df.columns:
         df = add_game_time_columns(df)
@@ -588,6 +612,85 @@ def build_player_scoring_timeline(
     return df[TIMELINE_COLUMNS].reset_index(drop=True)
 
 
+def build_quarter_timeline(
+    timeline_df: pd.DataFrame,
+    game_id: str,
+    player_id: int,
+    quarter_number: int,
+) -> pd.DataFrame:
+    """Select one player-quarter trajectory from the chart-ready timeline dataset."""
+    df = _coerce_to_timeline(timeline_df)
+    quarter_df = df.loc[
+        df["game_id"].eq(str(game_id))
+        & df["player_id"].eq(player_id)
+        & df["period"].eq(int(quarter_number))
+    ].copy()
+    return quarter_df.sort_values(["game_id", "action_id"]).reset_index(drop=True)
+
+
+def build_half_timeline(
+    timeline_df: pd.DataFrame,
+    game_id: str,
+    player_id: int,
+    half_index: int,
+) -> pd.DataFrame:
+    """Select one player-half trajectory from the chart-ready timeline dataset."""
+    df = _coerce_to_timeline(timeline_df)
+    half_df = df.loc[
+        df["game_id"].eq(str(game_id))
+        & df["player_id"].eq(player_id)
+        & df["half_index"].eq(int(half_index))
+    ].copy()
+    return half_df.sort_values(["game_id", "action_id"]).reset_index(drop=True)
+
+
+def build_burst_timeline(
+    timeline_df: pd.DataFrame,
+    burst_summary_row: dict[str, Any] | pd.Series,
+) -> pd.DataFrame:
+    """Select one player-burst trajectory and derive burst-local chart fields."""
+    df = _coerce_to_timeline(timeline_df)
+    burst = dict(burst_summary_row)
+    required = [
+        "game_id",
+        "player_id",
+        "window_start_seconds_in_game",
+        "window_end_seconds_in_game",
+        "burst_window_seconds",
+        "burst_window_label",
+    ]
+    missing = [column for column in required if column not in burst]
+    if missing:
+        raise ValueError(f"burst_summary_row is missing required fields: {missing}")
+
+    start_seconds = float(burst["window_start_seconds_in_game"])
+    end_seconds = float(burst["window_end_seconds_in_game"])
+    burst_df = df.loc[
+        df["game_id"].eq(str(burst["game_id"]))
+        & df["player_id"].eq(int(burst["player_id"]))
+        & df["elapsed_seconds_in_game"].between(start_seconds, end_seconds, inclusive="both")
+    ].copy()
+    burst_df = burst_df.sort_values(["game_id", "action_id"]).reset_index(drop=True)
+    if burst_df.empty:
+        empty = df.iloc[0:0].copy()
+        empty["burst_elapsed_seconds"] = pd.Series(dtype="float64")
+        empty["burst_elapsed_minutes"] = pd.Series(dtype="float64")
+        empty["burst_cumulative_points"] = pd.Series(dtype="Int64")
+        empty["burst_window_seconds"] = pd.Series(dtype="Int64")
+        empty["burst_window_label"] = pd.Series(dtype="string")
+        return empty[BURST_TIMELINE_COLUMNS]
+
+    baseline = int(burst_df.iloc[0]["player_game_cumulative_points"]) - int(burst_df.iloc[0]["point_value"])
+    burst_df["burst_elapsed_seconds"] = burst_df["elapsed_seconds_in_game"] - start_seconds
+    burst_df["burst_elapsed_minutes"] = burst_df["burst_elapsed_seconds"] / 60.0
+    burst_df["burst_cumulative_points"] = (
+        burst_df["player_game_cumulative_points"].astype(int) - baseline
+    ).astype("Int64")
+    burst_df["burst_window_seconds"] = int(burst["burst_window_seconds"])
+    burst_df["burst_window_label"] = str(burst["burst_window_label"])
+    return burst_df[BURST_TIMELINE_COLUMNS]
+
+
 def summarize_player_games(
     scoring_events_df: pd.DataFrame,
     boxscore_df: pd.DataFrame | None = None,
@@ -614,6 +717,13 @@ def summarize_player_games(
         timeline.groupby(group_columns, dropna=False, as_index=False)
         .agg(
             player_location=("location", "first"),
+            home_team_id=("home_team_id", "first"),
+            home_team_tricode=("home_team_tricode", "first"),
+            away_team_id=("away_team_id", "first"),
+            away_team_tricode=("away_team_tricode", "first"),
+            is_home_team=("is_home_team", "first"),
+            opponent_team_id=("opponent_team_id", "first"),
+            opponent_team_tricode=("opponent_team_tricode", "first"),
             final_points=("point_value", "sum"),
             num_scoring_events=("point_value", "size"),
             max_cumulative_points=("player_game_cumulative_points", "max"),
@@ -639,15 +749,18 @@ def summarize_player_games(
 
     summary = summary.merge(game_final_scores, on=game_columns, how="left")
     is_home = summary["player_location"].eq("h")
+    summary["final_player_team_score"] = (
+        summary["final_score_home"].where(is_home, summary["final_score_away"])
+    ).astype("Int64")
+    summary["final_opponent_score"] = (
+        summary["final_score_away"].where(is_home, summary["final_score_home"])
+    ).astype("Int64")
     summary["final_player_team_margin"] = (
-        (summary["final_score_home"] - summary["final_score_away"]).where(
-            is_home,
-            summary["final_score_away"] - summary["final_score_home"],
-        )
+        summary["final_player_team_score"] - summary["final_opponent_score"]
     ).astype("Int64")
     summary["offensive_share"] = (
         summary["final_points"].astype(float)
-        / summary["final_score_home"].where(is_home, summary["final_score_away"]).astype(float)
+        / summary["final_player_team_score"].astype(float)
     )
     summary["share_points_from_2s"] = _safe_ratio(summary["points_from_2s"], summary["final_points"])
     summary["share_points_from_3s"] = _safe_ratio(summary["points_from_3s"], summary["final_points"])
@@ -732,6 +845,7 @@ def summarize_player_quarters(scoring_events_df: pd.DataFrame) -> pd.DataFrame:
         "player_name",
         "team_id",
         "team_tricode",
+        *MATCHUP_CONTEXT_COLUMNS,
         "period",
     ]
     summary = (
@@ -770,6 +884,7 @@ def summarize_player_halves(scoring_events_df: pd.DataFrame) -> pd.DataFrame:
         "player_name",
         "team_id",
         "team_tricode",
+        *MATCHUP_CONTEXT_COLUMNS,
         "half_index",
         "half_label",
     ]
@@ -815,6 +930,13 @@ def summarize_player_bursts(
                     "player_name": base_row["player_name"],
                     "team_id": base_row["team_id"],
                     "team_tricode": base_row["team_tricode"],
+                    "home_team_id": base_row["home_team_id"],
+                    "home_team_tricode": base_row["home_team_tricode"],
+                    "away_team_id": base_row["away_team_id"],
+                    "away_team_tricode": base_row["away_team_tricode"],
+                    "is_home_team": base_row["is_home_team"],
+                    "opponent_team_id": base_row["opponent_team_id"],
+                    "opponent_team_tricode": base_row["opponent_team_tricode"],
                     "burst_window_seconds": int(window),
                     "burst_window_label": _burst_window_label(int(window)),
                     **burst,
@@ -1018,6 +1140,20 @@ def _ensure_metadata_columns(
         elif value is not None:
             df[column] = df[column].fillna(value)
     return df
+
+
+def _ensure_matchup_context_columns(df: pd.DataFrame) -> pd.DataFrame:
+    enriched = df.copy()
+    for column in MATCHUP_CONTEXT_COLUMNS:
+        if column not in enriched.columns:
+            enriched[column] = pd.NA
+    return enriched
+
+
+def _coerce_to_timeline(df: pd.DataFrame) -> pd.DataFrame:
+    if "player_game_cumulative_points" in df.columns:
+        return _ensure_matchup_context_columns(df.copy())
+    return build_player_scoring_timeline(df)
 
 
 def _require_columns(df: pd.DataFrame, expected_columns: list[str]) -> None:

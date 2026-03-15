@@ -7,7 +7,15 @@ from unittest.mock import patch
 
 import pandas as pd
 
-from nba_scoring_per_game.pipeline import build_dataset, load_dataset, process_game, query_player_games
+from nba_scoring_per_game.pipeline import (
+    DATASET_METADATA_FILENAME,
+    DATASET_SCHEMA_VERSION,
+    build_dataset,
+    get_dataset_metadata,
+    load_dataset,
+    process_game,
+    query_player_games,
+)
 from nba_scoring_per_game.source import fetch_game_manifest
 
 
@@ -191,8 +199,22 @@ class PipelineTests(unittest.TestCase):
             self.assertEqual(len(quarter_summaries), 4)
             self.assertEqual(len(half_summaries), 3)
             self.assertEqual(len(burst_summaries), 10)
+            self.assertTrue((base / DATASET_METADATA_FILENAME).exists())
+            metadata = get_dataset_metadata(base)
+            self.assertEqual(metadata["dataset_schema_version"], DATASET_SCHEMA_VERSION)
             self.assertIn("points_from_3s", summaries.columns)
             self.assertIn("margin_bucket", timelines.columns)
+            self.assertIn("opponent_team_tricode", raw_scoring.columns)
+            self.assertIn("home_team_id", summaries.columns)
+            self.assertIn("final_player_team_score", summaries.columns)
+            home_row = summaries.loc[summaries["player_id"].eq(100)].iloc[0]
+            away_row = summaries.loc[summaries["player_id"].eq(200)].iloc[0]
+            self.assertEqual(int(home_row["home_team_id"]), 1)
+            self.assertEqual(home_row["opponent_team_tricode"], "AWY")
+            self.assertEqual(bool(home_row["is_home_team"]), True)
+            self.assertEqual(int(home_row["final_player_team_score"]), 3)
+            self.assertEqual(int(home_row["final_opponent_score"]), 5)
+            self.assertEqual(int(away_row["opponent_team_id"]), 1)
             self.assertTrue((base / "validation_reports").exists())
 
     def test_build_dataset_skips_existing_after_success(self) -> None:

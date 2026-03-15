@@ -1,0 +1,591 @@
+from __future__ import annotations
+
+from typing import Any
+
+import pandas as pd
+from plotly import graph_objects as go
+
+from ..transforms import build_burst_timeline, build_half_timeline, build_quarter_timeline
+from .state import DashboardFilters, DashboardSelection, selection_from_record
+
+BACKGROUND = "#f5efe6"
+PAPER = "#fffaf2"
+CARD = "#fdf7ee"
+TEXT = "#1f1b18"
+MUTED = "#7b6d5d"
+GRID = "#d8c9b8"
+COMPARISON_COLORS = ["#0d5c63", "#d98324", "#8e3b46", "#3b6b4b"]
+SHOT_COLORS = {
+    "2PT": "#d98324",
+    "3PT": "#0d7c86",
+    "FT": "#b33c36",
+}
+MARGIN_COLORS = {
+    "trailing_10_plus": "#8e3b46",
+    "trailing_1_9": "#d1644a",
+    "within_3": "#e7b35a",
+    "leading_1_9": "#3b8d73",
+    "leading_10_plus": "#0d5c63",
+}
+PACE_BENCHMARKS = [50, 60, 70, 80, 100]
+
+
+def build_empty_figure(message: str, *, height: int = 560) -> go.Figure:
+    figure = go.Figure()
+    figure.update_layout(
+        template="plotly_white",
+        paper_bgcolor=PAPER,
+        plot_bgcolor=CARD,
+        font={"family": "Avenir Next, Trebuchet MS, Helvetica Neue, sans-serif", "color": TEXT},
+        xaxis={"visible": False},
+        yaxis={"visible": False},
+        annotations=[
+            {
+                "text": message,
+                "xref": "paper",
+                "yref": "paper",
+                "x": 0.5,
+                "y": 0.5,
+                "showarrow": False,
+                "font": {"size": 16, "color": MUTED},
+            }
+        ],
+        margin={"l": 24, "r": 24, "t": 40, "b": 24},
+        height=height,
+    )
+    return figure
+
+
+def build_trajectory_figure(
+    selected_records: list[dict[str, Any]],
+    timeline_df: pd.DataFrame,
+    filters: DashboardFilters,
+    burst_summaries: pd.DataFrame | None = None,
+) -> go.Figure:
+    if not selected_records:
+        return build_empty_figure("Select a performance from the leaderboard to compare trajectories.")
+    if timeline_df.empty:
+        return build_empty_figure("No timeline rows are available for the selected performance.")
+
+    figure = go.Figure()
+    x_field, y_field, x_title = _axis_fields(filters.entity_mode, filters.time_mode)
+
+    for index, record in enumerate(selected_records):
+        selection = selection_from_record(record, filters.entity_mode)
+        entity_timeline = _prepare_entity_timeline(timeline_df, selection)
+        if entity_timeline.empty:
+            continue
+
+        line_color = COMPARISON_COLORS[index % len(COMPARISON_COLORS)]
+        if filters.line_color_mode == "margin":
+            _add_margin_segment_traces(figure, entity_timeline, selection, x_field, y_field, index)
+        else:
+            figure.add_trace(
+                go.Scatter(
+                    x=entity_timeline[x_field],
+                    y=entity_timeline[y_field],
+                    mode="lines",
+                    line={"color": line_color, "width": 3, "shape": "hv"},
+                    name=_legend_label(selection),
+                    legendgroup=selection.selection_id,
+                    hoverinfo="skip",
+                )
+            )
+
+        if filters.show_shot_markers:
+            figure.add_trace(
+                go.Scatter(
+                    x=entity_timeline[x_field],
+                    y=entity_timeline[y_field],
+                    mode="markers",
+                    name=f"{_legend_label(selection)} events",
+                    legendgroup=selection.selection_id,
+                    showlegend=False,
+                    marker={
+                        "size": 9,
+                        "color": [SHOT_COLORS.get(value, line_color) for value in entity_timeline["scoring_type"]],
+                        "line": {"color": PAPER, "width": 1},
+                        "opacity": 0.95,
+                    },
+                    customdata=_hover_customdata(entity_timeline, filters),
+                    hovertemplate=_hover_template(),
+                )
+            )
+        else:
+            figure.add_trace(
+                go.Scatter(
+                    x=entity_timeline[x_field],
+                    y=entity_timeline[y_field],
+                    mode="markers",
+                    name=f"{_legend_label(selection)} hover",
+                    legendgroup=selection.selection_id,
+                    showlegend=False,
+                    marker={"size": 14, "color": "rgba(0,0,0,0.001)", "opacity": 1.0},
+                    customdata=_hover_customdata(entity_timeline, filters),
+                    hovertemplate=_hover_template(),
+                )
+            )
+
+        _add_burst_annotations(figure, record, filters, burst_summaries, line_color)
+
+    if not figure.data:
+        return build_empty_figure("No chartable timeline rows matched the current selection.")
+
+    figure.update_layout(
+        template="plotly_white",
+        paper_bgcolor=PAPER,
+        plot_bgcolor=CARD,
+        font={"family": "Avenir Next, Trebuchet MS, Helvetica Neue, sans-serif", "color": TEXT},
+        hoverlabel={
+            "bgcolor": "#1f1b18",
+            "font": {"family": "Avenir Next, Trebuchet MS, Helvetica Neue, sans-serif", "color": "#fffaf2"},
+        },
+        margin={"l": 60, "r": 24, "t": 56, "b": 56},
+        height=560,
+        legend={
+            "orientation": "h",
+            "yanchor": "bottom",
+            "y": 1.02,
+            "xanchor": "left",
+            "x": 0.0,
+            "bgcolor": "rgba(0,0,0,0)",
+        },
+        title={
+            "text": _chart_title(filters),
+            "x": 0.02,
+            "xanchor": "left",
+            "font": {"size": 22, "color": TEXT},
+        },
+        xaxis={"title": x_title, "gridcolor": GRID, "zeroline": False},
+        yaxis={"title": _y_axis_title(filters.entity_mode), "gridcolor": GRID, "zeroline": False},
+    )
+    if filters.time_mode == "normalized":
+        figure.update_xaxes(range=[0, 1], tickformat=".0%")
+    return figure
+
+
+def build_secondary_analysis_figure(
+    selected_records: list[dict[str, Any]],
+    timeline_df: pd.DataFrame,
+    filters: DashboardFilters,
+) -> go.Figure:
+    if filters.entity_mode == "burst":
+        return build_empty_figure("Burst mode already isolates the scoring stretch.", height=320)
+    if filters.analysis_mode == "none":
+        return build_empty_figure("Choose a secondary analysis mode to inspect pace or burst intensity.", height=320)
+    if not selected_records:
+        return build_empty_figure("Select a performance to open the secondary analysis panel.", height=320)
+    if timeline_df.empty:
+        return build_empty_figure("No timeline rows are available for secondary analysis.", height=320)
+
+    figure = go.Figure()
+    x_field, _, x_title = _axis_fields(filters.entity_mode, filters.time_mode)
+    y_title = {
+        "rolling_points": f"Trailing {filters.analysis_window // 60 if filters.analysis_window >= 60 else filters.analysis_window}s Points",
+        "rolling_rate": f"Trailing {filters.analysis_window // 60 if filters.analysis_window >= 60 else filters.analysis_window}s Points / Minute",
+        "projected_pace": "Projected Final Points (48-Min Pace)",
+    }[filters.analysis_mode]
+
+    for index, record in enumerate(selected_records):
+        selection = selection_from_record(record, filters.entity_mode)
+        entity_timeline = _prepare_entity_timeline(timeline_df, selection)
+        if entity_timeline.empty:
+            continue
+        line_color = COMPARISON_COLORS[index % len(COMPARISON_COLORS)]
+        if filters.analysis_mode == "projected_pace":
+            series_df = entity_timeline.copy()
+            y_values = pd.to_numeric(series_df["projected_48"], errors="coerce")
+        else:
+            series_df = build_rolling_analysis_series(
+                entity_timeline,
+                window_seconds=filters.analysis_window,
+                mode=filters.analysis_mode,
+            )
+            y_values = pd.to_numeric(series_df["analysis_value"], errors="coerce")
+        figure.add_trace(
+            go.Scatter(
+                x=series_df[x_field],
+                y=y_values,
+                mode="lines+markers",
+                line={"color": line_color, "width": 2.5, "shape": "hv"},
+                marker={"size": 7, "color": line_color},
+                name=_legend_label(selection),
+                legendgroup=selection.selection_id,
+                customdata=_analysis_hover_customdata(series_df, filters),
+                hovertemplate=_analysis_hover_template(filters.analysis_mode),
+            )
+        )
+
+    if not figure.data:
+        return build_empty_figure("No secondary analysis rows matched the current selection.", height=320)
+
+    if filters.analysis_mode == "projected_pace":
+        for benchmark in PACE_BENCHMARKS:
+            figure.add_hline(
+                y=benchmark,
+                line={"color": GRID, "dash": "dot", "width": 1},
+                annotation_text=str(benchmark),
+                annotation_position="right",
+                annotation_font={"color": MUTED, "size": 11},
+            )
+
+    figure.update_layout(
+        template="plotly_white",
+        paper_bgcolor=PAPER,
+        plot_bgcolor=CARD,
+        font={"family": "Avenir Next, Trebuchet MS, Helvetica Neue, sans-serif", "color": TEXT},
+        hoverlabel={
+            "bgcolor": "#1f1b18",
+            "font": {"family": "Avenir Next, Trebuchet MS, Helvetica Neue, sans-serif", "color": "#fffaf2"},
+        },
+        margin={"l": 60, "r": 24, "t": 48, "b": 48},
+        height=320,
+        legend={"orientation": "h", "yanchor": "bottom", "y": 1.02, "xanchor": "left", "x": 0.0},
+        xaxis={"title": x_title, "gridcolor": GRID, "zeroline": False},
+        yaxis={"title": y_title, "gridcolor": GRID, "zeroline": False},
+    )
+    if filters.time_mode == "normalized":
+        figure.update_xaxes(range=[0, 1], tickformat=".0%")
+    return figure
+
+
+def build_rolling_analysis_series(
+    entity_timeline: pd.DataFrame,
+    *,
+    window_seconds: int,
+    mode: str,
+) -> pd.DataFrame:
+    if entity_timeline.empty:
+        empty = entity_timeline.copy()
+        empty["analysis_window_seconds"] = pd.Series(dtype="Int64")
+        empty["analysis_window_points"] = pd.Series(dtype="float64")
+        empty["analysis_window_span_seconds"] = pd.Series(dtype="float64")
+        empty["analysis_value"] = pd.Series(dtype="float64")
+        return empty
+
+    if mode not in {"rolling_points", "rolling_rate"}:
+        raise ValueError(f"Unsupported rolling analysis mode: {mode}")
+
+    timeline = entity_timeline.sort_values(["elapsed_seconds_in_game", "action_id"]).reset_index(drop=True).copy()
+    event_times = pd.to_numeric(timeline["elapsed_seconds_in_game"], errors="coerce")
+    point_values = pd.to_numeric(timeline["point_value"], errors="coerce").fillna(0.0)
+    interval_start = float(event_times.min())
+
+    points_in_window: list[float] = []
+    spans_in_window: list[float] = []
+    values: list[float] = []
+    for event_time in event_times.tolist():
+        lower_bound = max(interval_start, float(event_time) - float(window_seconds))
+        mask = event_times.ge(lower_bound) & event_times.le(float(event_time))
+        window_points = float(point_values.loc[mask].sum())
+        span_seconds = float(event_time) - lower_bound
+        points_in_window.append(window_points)
+        spans_in_window.append(span_seconds)
+        if mode == "rolling_points":
+            values.append(window_points)
+        elif span_seconds <= 0:
+            values.append(pd.NA)
+        else:
+            values.append(window_points / (span_seconds / 60.0))
+
+    timeline["analysis_window_seconds"] = int(window_seconds)
+    timeline["analysis_window_points"] = points_in_window
+    timeline["analysis_window_span_seconds"] = spans_in_window
+    timeline["analysis_value"] = pd.Series(values, dtype="Float64")
+    return timeline
+
+
+def _prepare_entity_timeline(timeline_df: pd.DataFrame, selection: DashboardSelection) -> pd.DataFrame:
+    if selection.entity_mode == "game":
+        entity_timeline = timeline_df.loc[
+            timeline_df["game_id"].eq(selection.game_id) & timeline_df["player_id"].eq(selection.player_id)
+        ].sort_values(["game_id", "action_id"]).reset_index(drop=True)
+    elif selection.entity_mode == "quarter":
+        entity_timeline = build_quarter_timeline(
+            timeline_df,
+            game_id=selection.game_id,
+            player_id=selection.player_id,
+            quarter_number=int(selection.payload["quarter_number"]),
+        )
+    elif selection.entity_mode == "half":
+        entity_timeline = build_half_timeline(
+            timeline_df,
+            game_id=selection.game_id,
+            player_id=selection.player_id,
+            half_index=int(selection.payload["half_index"]),
+        )
+    else:
+        entity_timeline = build_burst_timeline(timeline_df, selection.payload)
+    if entity_timeline.empty:
+        return entity_timeline
+    prepared = entity_timeline.copy()
+    if selection.entity_mode == "burst":
+        window_seconds = float(prepared["burst_window_seconds"].iloc[0] or 0)
+        prepared["burst_time_normalized"] = prepared["burst_elapsed_seconds"] / window_seconds if window_seconds > 0 else 0.0
+    return prepared
+
+
+def _add_margin_segment_traces(
+    figure: go.Figure,
+    timeline_df: pd.DataFrame,
+    selection: DashboardSelection,
+    x_field: str,
+    y_field: str,
+    comparison_index: int,
+) -> None:
+    if len(timeline_df) == 1:
+        figure.add_trace(
+            go.Scatter(
+                x=timeline_df[x_field],
+                y=timeline_df[y_field],
+                mode="lines",
+                line={"color": MARGIN_COLORS.get(timeline_df.iloc[0]["margin_bucket"], COMPARISON_COLORS[comparison_index]), "width": 3},
+                name=_legend_label(selection),
+                legendgroup=selection.selection_id,
+                hoverinfo="skip",
+            )
+        )
+        return
+
+    first_trace = True
+    for position in range(1, len(timeline_df)):
+        segment = timeline_df.iloc[position - 1 : position + 1]
+        color = MARGIN_COLORS.get(
+            segment.iloc[-1]["margin_bucket"],
+            COMPARISON_COLORS[comparison_index % len(COMPARISON_COLORS)],
+        )
+        figure.add_trace(
+            go.Scatter(
+                x=segment[x_field],
+                y=segment[y_field],
+                mode="lines",
+                line={"color": color, "width": 3, "shape": "hv"},
+                name=_legend_label(selection),
+                legendgroup=selection.selection_id,
+                showlegend=first_trace,
+                hoverinfo="skip",
+            )
+        )
+        first_trace = False
+
+
+def _add_burst_annotations(
+    figure: go.Figure,
+    record: dict[str, Any],
+    filters: DashboardFilters,
+    burst_summaries: pd.DataFrame | None,
+    color: str,
+) -> None:
+    if filters.entity_mode != "game":
+        return
+    if filters.analysis_mode not in {"rolling_points", "rolling_rate"}:
+        return
+    if burst_summaries is None or burst_summaries.empty:
+        return
+    burst_window = int(filters.analysis_window)
+    matches = burst_summaries.loc[
+        burst_summaries["game_id"].astype(str).eq(str(record["game_id"]))
+        & burst_summaries["player_id"].astype(int).eq(int(record["player_id"]))
+        & burst_summaries["burst_window_seconds"].astype(int).eq(burst_window)
+    ]
+    if matches.empty:
+        return
+    row = matches.iloc[0]
+    start_min = float(row["window_start_seconds_in_game"]) / 60.0
+    end_min = float(row["window_end_seconds_in_game"]) / 60.0
+    figure.add_vrect(
+        x0=start_min,
+        x1=end_min,
+        fillcolor=color,
+        opacity=0.07,
+        line_width=0,
+        layer="below",
+    )
+
+
+def _axis_fields(entity_mode: str, time_mode: str) -> tuple[str, str, str]:
+    if entity_mode == "game":
+        return (
+            ("elapsed_minutes_in_game", "player_game_cumulative_points", "Game Minute")
+            if time_mode == "raw"
+            else ("game_time_normalized", "player_game_cumulative_points", "Normalized Game Progress")
+        )
+    if entity_mode == "quarter":
+        return (
+            ("quarter_time_elapsed", "player_quarter_cumulative_points", "Quarter Minute")
+            if time_mode == "raw"
+            else ("quarter_time_normalized", "player_quarter_cumulative_points", "Normalized Quarter Progress")
+        )
+    if entity_mode == "half":
+        return (
+            ("half_time_elapsed", "player_half_cumulative_points", "Half Minute")
+            if time_mode == "raw"
+            else ("half_time_normalized", "player_half_cumulative_points", "Normalized Half Progress")
+        )
+    return (
+        ("burst_elapsed_seconds", "burst_cumulative_points", "Burst Seconds")
+        if time_mode == "raw"
+        else ("burst_time_normalized", "burst_cumulative_points", "Normalized Burst Progress")
+    )
+
+
+def _y_axis_title(entity_mode: str) -> str:
+    if entity_mode == "quarter":
+        return "Quarter Cumulative Points"
+    if entity_mode == "half":
+        return "Half Cumulative Points"
+    if entity_mode == "burst":
+        return "Burst Cumulative Points"
+    return "Cumulative Points"
+
+
+def _chart_title(filters: DashboardFilters) -> str:
+    title = {
+        "game": "Historic Scoring Trajectories",
+        "quarter": "Best Quarter Scoring Paths",
+        "half": "First- and Second-Half Scoring Paths",
+        "burst": "Burst Scoring Windows",
+    }[filters.entity_mode]
+    if filters.line_color_mode == "margin":
+        title += " with Margin Context"
+    return title
+
+
+def _legend_label(selection: DashboardSelection) -> str:
+    return f"{selection.player_name} · {selection.label}"
+
+
+def _hover_customdata(timeline_df: pd.DataFrame, filters: DashboardFilters) -> list[list[Any]]:
+    return [
+        [
+            row["player_name"],
+            row["team_tricode"],
+            row.get("opponent_team_tricode", ""),
+            row["game_date"],
+            row["season"],
+            _period_label(row),
+            _mode_time_label(filters.entity_mode, filters.time_mode),
+            _mode_time_value(row, filters.entity_mode, filters.time_mode),
+            row["game_minute"],
+            row["point_value"],
+            row["scoring_type"],
+            row["player_team_score_after"],
+            row["opponent_score_after"],
+            row["score_diff"],
+            _projected_label(row["projected_48"]),
+        ]
+        for _, row in timeline_df.iterrows()
+    ]
+
+
+def _hover_template() -> str:
+    return (
+        "<b>%{customdata[0]}</b><br>"
+        "%{customdata[1]} vs %{customdata[2]}<br>"
+        "%{customdata[3]} · %{customdata[4]}<br>"
+        "%{customdata[5]} · %{customdata[6]} %{customdata[7]}<br>"
+        "Game minute %{customdata[8]}<br>"
+        "Cumulative: %{y}<br>"
+        "Event: %{customdata[9]} pts (%{customdata[10]})<br>"
+        "Score: %{customdata[11]}-%{customdata[12]}<br>"
+        "Diff: %{customdata[13]}<br>"
+        "Projected 48: %{customdata[14]}<extra></extra>"
+    )
+
+
+def _analysis_hover_customdata(series_df: pd.DataFrame, filters: DashboardFilters) -> list[list[Any]]:
+    label = {
+        "rolling_points": "Rolling points",
+        "rolling_rate": "Rolling rate",
+        "projected_pace": "Projected 48",
+    }[filters.analysis_mode]
+    customdata: list[list[Any]] = []
+    for _, row in series_df.iterrows():
+        if filters.analysis_mode == "projected_pace":
+            value = _projected_label(row["projected_48"])
+            window = "48-min pace"
+        else:
+            value = _analysis_value_label(row["analysis_value"])
+            window = _window_label(int(row["analysis_window_seconds"]))
+        customdata.append(
+            [
+                row["player_name"],
+                label,
+                window,
+                _mode_time_value(row, filters.entity_mode, filters.time_mode),
+                value,
+            ]
+        )
+    return customdata
+
+
+def _analysis_hover_template(mode: str) -> str:
+    if mode == "projected_pace":
+        return (
+            "<b>%{customdata[0]}</b><br>"
+            "%{customdata[1]}: %{customdata[4]}<br>"
+            "At %{customdata[3]}<extra></extra>"
+        )
+    return (
+        "<b>%{customdata[0]}</b><br>"
+        "%{customdata[1]} (%{customdata[2]}): %{customdata[4]}<br>"
+        "At %{customdata[3]}<extra></extra>"
+    )
+
+
+def _mode_time_label(entity_mode: str, time_mode: str) -> str:
+    if entity_mode == "game":
+        return "Game minute"
+    if entity_mode == "quarter":
+        return "Quarter progress" if time_mode == "normalized" else "Quarter minute"
+    if entity_mode == "half":
+        return "Half progress" if time_mode == "normalized" else "Half minute"
+    return "Burst progress" if time_mode == "normalized" else "Burst second"
+
+
+def _mode_time_value(row: pd.Series, entity_mode: str, time_mode: str) -> str:
+    if entity_mode == "game":
+        value = row["game_time_normalized"] if time_mode == "normalized" else row["elapsed_minutes_in_game"]
+    elif entity_mode == "quarter":
+        value = row["quarter_time_normalized"] if time_mode == "normalized" else row["quarter_time_elapsed"]
+    elif entity_mode == "half":
+        value = row["half_time_normalized"] if time_mode == "normalized" else row["half_time_elapsed"]
+    else:
+        value = row.get("burst_time_normalized") if time_mode == "normalized" else row["burst_elapsed_seconds"]
+    if value is None or pd.isna(value):
+        return "NA"
+    numeric = float(value)
+    return f"{numeric:.0%}" if time_mode == "normalized" else f"{numeric:.1f}"
+
+
+def _period_label(row: Any) -> str:
+    period = int(row["period"])
+    if period <= 4:
+        return f"Q{period}"
+    return f"OT{period - 4}"
+
+
+def _projected_label(value: Any) -> str:
+    if value is None or pd.isna(value):
+        return "NA"
+    try:
+        numeric = float(value)
+    except (TypeError, ValueError):
+        return "NA"
+    return f"{numeric:.1f}"
+
+
+def _analysis_value_label(value: Any) -> str:
+    if value is None or pd.isna(value):
+        return "NA"
+    try:
+        return f"{float(value):.1f}"
+    except (TypeError, ValueError):
+        return "NA"
+
+
+def _window_label(window_seconds: int) -> str:
+    if window_seconds % 60 == 0:
+        minutes = window_seconds // 60
+        return f"{minutes} min"
+    return f"{window_seconds} sec"

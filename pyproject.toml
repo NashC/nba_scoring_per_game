@@ -8,6 +8,9 @@ dependencies = [
   "nba_api>=1.11.4",
   "pandas>=2.2",
   "pyarrow>=23.0.0",
+  "dash>=4.0.0",
+  "plotly>=6.6.0",
+  "diskcache>=5.6.3",
 ]
 
 [project.scripts]
@@ -19,3 +22,6 @@ build-backend = "setuptools.build_meta"
 
 [tool.setuptools.packages.find]
 where = ["src"]
+
+[tool.setuptools.package-data]
+"nba_scoring_per_game.dashboard" = ["assets/*.css"]

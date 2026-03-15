@@ -2,6 +2,8 @@
 
 This project materializes six curated datasets plus two operational outputs.
 
+The local Dash explorer in this repo loads the four summary datasets eagerly, validates `dataset_metadata.json`, and loads `player_scoring_timelines` lazily for the current comparison set.
+
 ## Curated datasets
 
 ### `raw_scoring_events`
@@ -14,6 +16,13 @@ Core columns:
 - `season_type`
 - `game_date`
 - `game_id`
+- `home_team_id`
+- `home_team_tricode`
+- `away_team_id`
+- `away_team_tricode`
+- `is_home_team`
+- `opponent_team_id`
+- `opponent_team_tricode`
 - `action_number`
 - `action_id`
 - `player_id`
@@ -93,9 +102,12 @@ One row per player-game.
 Core columns:
 
 - all identifying columns from the base summary grain
+- matchup context columns
 - `final_points`
 - `num_scoring_events`
 - `max_cumulative_points`
+- `final_player_team_score`
+- `final_opponent_score`
 - `final_player_team_margin`
 - `avg_margin_during_scoring_events`
 - `median_margin_during_scoring_events`
@@ -145,6 +157,7 @@ One row per player-quarter.
 Columns:
 
 - identifying columns through `team_tricode`
+- matchup context columns
 - `quarter_number`
 - `quarter_label`
 - `is_overtime_quarter`
@@ -174,6 +187,7 @@ One row per player-half for regulation halves only.
 Columns:
 
 - identifying columns through `team_tricode`
+- matchup context columns
 - `half_index`
 - `half_label`
 - `half_points`
@@ -202,6 +216,7 @@ One row per player-game per precomputed burst window.
 Columns:
 
 - identifying columns through `team_tricode`
+- matchup context columns
 - `burst_window_seconds`
 - `burst_window_label`
 - `points_in_window`
@@ -233,6 +248,25 @@ Rules:
 - Each row represents the best scoring window of that size for that player-game.
 
 ## Operational outputs
+
+### `dataset_metadata.json`
+
+One JSON file per output root that exposes the app-facing schema contract.
+
+Important fields:
+
+- `dataset_schema_version`
+- `metadata_filename`
+- `competitive_margin_threshold`
+- `burst_window_seconds`
+- `selection_helpers`
+- `datasets`
+
+The dashboard checks `dataset_schema_version` at startup and refuses to load unsupported parquet outputs.
+
+The dashboard also derives an app-side `era` field from the season start year at load time for filtering and presets; this is not persisted back to parquet in v1.
+
+`datasets` maps dataset names to the published column order.
 
 ### `validation_reports`
 
@@ -293,6 +327,7 @@ Typical status values:
 
 Outputs are written under `data/`:
 
+- `dataset_metadata.json`
 - `raw_playbyplay_cache/season=<season>/season_type=<season_type>/game_id=<game_id>.parquet`
 - `raw_scoring_events/season=<season>/season_type=<season_type>/part-<game_id>.parquet`
 - `player_scoring_timelines/season=<season>/season_type=<season_type>/part-<game_id>.parquet`

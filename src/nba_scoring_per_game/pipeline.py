@@ -3,6 +3,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 from datetime import datetime
+import json
 from pathlib import Path
 import time
 from typing import Any
@@ -12,7 +13,11 @@ import pandas as pd
 from .source import fetch_boxscore_player_totals, fetch_playbyplay
 from .transforms import (
     BURST_SUMMARY_COLUMNS,
+    BURST_TIMELINE_COLUMNS,
+    BURST_WINDOW_SECONDS,
+    COMPETITIVE_MARGIN_THRESHOLD,
     HALF_SUMMARY_COLUMNS,
+    MATCHUP_CONTEXT_COLUMNS,
     QUARTER_SUMMARY_COLUMNS,
     RAW_SCORING_COLUMNS,
     SUMMARY_COLUMNS,
@@ -27,6 +32,8 @@ from .transforms import (
 from .validation import validate_game
 
 WRITE_MODES = {"skip_existing", "overwrite", "error_if_exists"}
+DATASET_SCHEMA_VERSION = "2.3.0"
+DATASET_METADATA_FILENAME = "dataset_metadata.json"
 CURATED_DATASET_NAMES = (
     "raw_scoring_events",
     "player_scoring_timelines",
@@ -77,6 +84,7 @@ def process_game(
         return artifact
 
     output_paths = _build_output_paths(out_path, row, current_run_date)
+    _write_dataset_metadata(out_path)
 
     if write_mode == "skip_existing" and _should_skip_existing(row["game_id"], out_path, output_paths):
         artifact.skipped_existing = True
@@ -127,6 +135,7 @@ def process_game(
             season_type=row["season_type"],
             game_date=row["game_date"],
         )
+        raw_scoring_events = _add_matchup_context(raw_scoring_events, row)
         player_scoring_timelines = build_player_scoring_timeline(raw_scoring_events)
         player_game_summaries = summarize_player_games(raw_scoring_events, boxscore_df=boxscore_df)
         player_quarter_summaries = summarize_player_quarters(raw_scoring_events)
@@ -335,6 +344,15 @@ def load_dataset(dataset_dir: str | Path) -> pd.DataFrame:
     return pd.concat((pd.read_parquet(path) for path in parquet_paths), ignore_index=True)
 
 
+def get_dataset_metadata(out_dir: str | Path | None = None) -> dict[str, Any]:
+    """Return the current dataset schema metadata, preferring an on-disk metadata file when present."""
+    if out_dir is not None:
+        metadata_path = Path(out_dir) / DATASET_METADATA_FILENAME
+        if metadata_path.exists():
+            return json.loads(metadata_path.read_text(encoding="utf-8"))
+    return _build_dataset_metadata()
+
+
 def _normalize_manifest_row(manifest_row: Mapping[str, Any] | pd.Series) -> dict[str, Any]:
     row = dict(manifest_row)
     required = ["season", "season_type", "game_id", "game_date"]
@@ -418,6 +436,13 @@ def _write_parquet(df: pd.DataFrame, path: Path) -> None:
     temp_path.replace(path)
 
 
+def _write_dataset_metadata(out_dir: Path) -> None:
+    payload = _build_dataset_metadata()
+    path = out_dir / DATASET_METADATA_FILENAME
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+
+
 def _retry_call(func: Any, *args: Any, max_attempts: int = 3, base_delay_seconds: float = 1.0, **kwargs: Any) -> Any:
     last_error: Exception | None = None
     for attempt in range(1, max_attempts + 1):
@@ -457,6 +482,8 @@ def _normalize_ranking_metric(metric: str, entity_mode: str, point_column: str) 
         return "median_abs_score_diff_in_window" if entity_mode == "burst" else "median_abs_margin_during_scoring_events"
     aliases = {
         "total_points": point_column,
+        "best_60_sec_points": "best_60_sec_points",
+        "best_2_min_points": "best_2_min_points",
         "best_3_min_points": "best_3_min_points",
         "best_5_min_points": "best_5_min_points",
         "best_10_min_points": "best_10_min_points",
@@ -482,3 +509,57 @@ def _resolve_metric_column(candidates: list[str], df: pd.DataFrame) -> str | Non
         if candidate in df.columns:
             return candidate
     return None
+
+
+def _add_matchup_context(df: pd.DataFrame, row: Mapping[str, Any]) -> pd.DataFrame:
+    enriched = df.copy()
+    for column in MATCHUP_CONTEXT_COLUMNS:
+        if column not in enriched.columns:
+            enriched[column] = pd.NA
+
+    home_team_id = row.get("home_team_id")
+    away_team_id = row.get("away_team_id")
+    home_team_tricode = row.get("home_team_tricode")
+    away_team_tricode = row.get("away_team_tricode")
+    enriched["home_team_id"] = home_team_id
+    enriched["home_team_tricode"] = home_team_tricode
+    enriched["away_team_id"] = away_team_id
+    enriched["away_team_tricode"] = away_team_tricode
+
+    if enriched.empty:
+        return enriched
+
+    is_home_team = enriched["location"].astype(str).str.lower().eq("h")
+    enriched["is_home_team"] = is_home_team
+    enriched["opponent_team_id"] = pd.Series(
+        [away_team_id if is_home else home_team_id for is_home in is_home_team],
+        index=enriched.index,
+    )
+    enriched["opponent_team_tricode"] = pd.Series(
+        [away_team_tricode if is_home else home_team_tricode for is_home in is_home_team],
+        index=enriched.index,
+    )
+    return enriched
+
+
+def _build_dataset_metadata() -> dict[str, Any]:
+    return {
+        "dataset_schema_version": DATASET_SCHEMA_VERSION,
+        "metadata_filename": DATASET_METADATA_FILENAME,
+        "competitive_margin_threshold": COMPETITIVE_MARGIN_THRESHOLD,
+        "burst_window_seconds": list(BURST_WINDOW_SECONDS),
+        "selection_helpers": [
+            "build_quarter_timeline",
+            "build_half_timeline",
+            "build_burst_timeline",
+        ],
+        "datasets": {
+            "raw_scoring_events": RAW_SCORING_COLUMNS,
+            "player_scoring_timelines": TIMELINE_COLUMNS,
+            "player_game_summaries": SUMMARY_COLUMNS,
+            "player_quarter_summaries": QUARTER_SUMMARY_COLUMNS,
+            "player_half_summaries": HALF_SUMMARY_COLUMNS,
+            "player_burst_summaries": BURST_SUMMARY_COLUMNS,
+            "player_burst_timelines": BURST_TIMELINE_COLUMNS,
+        },
+    }

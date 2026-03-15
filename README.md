@@ -1,6 +1,6 @@
 # nba_scoring_per_game
 
-Event-level NBA player scoring pipeline built on official NBA play-by-play data via `nba_api`.
+Event-level NBA player scoring pipeline and local Dash explorer app built on official NBA play-by-play data via `nba_api`.
 
 ## Product goal
 
@@ -22,6 +22,7 @@ The pipeline is source-first and validation-heavy. It only publishes curated out
 - Player-half summaries: ranking/filtering metrics for first-half and second-half explosions
 - Player-burst summaries: best `60/120/180/300/600` second windows per player-game
 - Batch season backfills with validation-gated Parquet outputs
+- Local scoring explorer app for leaderboards, comparisons, and trajectory views
 
 ## Important source findings
 
@@ -52,6 +53,12 @@ Smoke-test the package and inspect the current implementation behavior:
 PYTHONPATH=src .venv/bin/python scripts/demo_pipeline.py
 ```
 
+Launch the interactive explorer against local parquet outputs:
+
+```bash
+.venv/bin/nba-scoring-per-game serve-app --out-dir data
+```
+
 ## Typical workflow
 
 1. Inspect one game to confirm the raw source shape.
@@ -65,6 +72,12 @@ Inspect one game:
 
 ```bash
 .venv/bin/nba-scoring-per-game inspect-game --game-id 0020500591
+```
+
+Describe the current dataset contract:
+
+```bash
+.venv/bin/nba-scoring-per-game describe-datasets --out-dir data
 ```
 
 Process one game:
@@ -129,6 +142,25 @@ Query best 3-minute bursts in competitive, non-OT games:
   --ranking-metric points_in_window
 ```
 
+Run the local explorer app:
+
+```bash
+.venv/bin/nba-scoring-per-game serve-app \
+  --out-dir data \
+  --host 127.0.0.1 \
+  --port 8050
+```
+
+The app is read-only in v1. It loads local parquet outputs and `dataset_metadata.json`, validates the published schema version, eagerly loads summary tables, and lazily loads `player_scoring_timelines` only for the active comparison set.
+
+Phase 4 app features now include:
+
+- a synchronized secondary analysis panel for rolling burst intensity and projected pace
+- query-driven presets such as `70+ games`, `best quarters`, and `competitive 60+ games`
+- URL query-string persistence for filters and comparison selections
+- leaderboard CSV export and chart image export through the Plotly modebar
+- richer game detail cards with final score context, efficiency, burden, shot mix, and burst metrics
+
 ## Phase 2 analytics
 
 The timeline dataset now includes:
@@ -138,6 +170,7 @@ The timeline dataset now includes:
 - cumulative points from `2PT`, `3PT`, and `FT`
 - score-differential buckets for chart context coloring
 - projected 48-point pace with an early-game noise guard
+- matchup context fields so app consumers do not need a separate manifest join
 
 The game summary dataset now includes:
 
@@ -156,8 +189,26 @@ The game summary dataset now includes:
 - `best_10_min_points`
 - `best_quarter_points`
 - `best_half_points`
+- `final_player_team_score`
+- `final_opponent_score`
 - `ts_pct`
 - `efg_pct`
+
+The repo also exposes thin selection helpers for app consumers:
+
+- `build_quarter_timeline(...)`
+- `build_half_timeline(...)`
+- `build_burst_timeline(...)`
+
+The repo now also includes a Dash app package under [`dashboard/`](/Users/nash/Documents/coding_projects/nba_scoring_per_game/src/nba_scoring_per_game/dashboard/app.py) with:
+
+- summary-table loading and schema checks
+- a leaderboard-driven comparison workflow
+- full-game, quarter, half, and burst chart modes
+- optional shot markers and margin-context coloring
+- a secondary analysis panel for rolling burst windows and projected pace
+- URL-persisted dashboard state and preset filters
+- rich detail cards for the current selection set
 
 ## Validation behavior
 
@@ -181,11 +232,17 @@ If a game fails validation or official play-by-play is unavailable, the game is 
 - [`validation.py`](/Users/nash/Documents/coding_projects/nba_scoring_per_game/src/nba_scoring_per_game/validation.py)
 - [`pipeline.py`](/Users/nash/Documents/coding_projects/nba_scoring_per_game/src/nba_scoring_per_game/pipeline.py)
 - [`cli.py`](/Users/nash/Documents/coding_projects/nba_scoring_per_game/src/nba_scoring_per_game/cli.py)
+- [`dashboard/app.py`](/Users/nash/Documents/coding_projects/nba_scoring_per_game/src/nba_scoring_per_game/dashboard/app.py)
+- [`dashboard/charts.py`](/Users/nash/Documents/coding_projects/nba_scoring_per_game/src/nba_scoring_per_game/dashboard/charts.py)
+- [`dashboard/layout.py`](/Users/nash/Documents/coding_projects/nba_scoring_per_game/src/nba_scoring_per_game/dashboard/layout.py)
+- [`dashboard/loader.py`](/Users/nash/Documents/coding_projects/nba_scoring_per_game/src/nba_scoring_per_game/dashboard/loader.py)
+- [`dashboard/state.py`](/Users/nash/Documents/coding_projects/nba_scoring_per_game/src/nba_scoring_per_game/dashboard/state.py)
 
 ## Output layout
 
 Curated outputs are written under `data/`:
 
+- `dataset_metadata.json`
 - `raw_playbyplay_cache/season=<season>/season_type=<season_type>/game_id=<game_id>.parquet`
 - `raw_scoring_events/season=<season>/season_type=<season_type>/part-<game_id>.parquet`
 - `player_scoring_timelines/season=<season>/season_type=<season_type>/part-<game_id>.parquet`
@@ -202,7 +259,7 @@ Curated outputs are written under `data/`:
 
 Detailed dataset schemas and processing-manifest fields live in [`docs/DATASETS.md`](/Users/nash/Documents/coding_projects/nba_scoring_per_game/docs/DATASETS.md).
 
-The planned app-side expansion, including chart markers, richer tooltips, comparison modes, and leaderboard behavior, lives in [`docs/EXPANSION_PLAN.md`](/Users/nash/Documents/coding_projects/nba_scoring_per_game/docs/EXPANSION_PLAN.md).
+The current app roadmap and remaining improvements live in [`docs/EXPANSION_PLAN.md`](/Users/nash/Documents/coding_projects/nba_scoring_per_game/docs/EXPANSION_PLAN.md).
 
 ## Coverage and limitations
 
@@ -211,7 +268,8 @@ The planned app-side expansion, including chart markers, richer tooltips, compar
 - The batch pipeline is single-threaded in v1.
 - Queries operate on local Parquet outputs; no database is required.
 - `ts_pct` and `efg_pct` are sourced from official box score makes/attempts when available; they are left null if the upstream box score response does not expose the required fields.
-- The current workspace contains the pipeline/backend only; any frontend/app implementation consumes these datasets from a separate app codebase.
+- The explorer app in this repo is a single-page Dash app and is read-only in v1.
+- `dataset_metadata.json` is the intended app-facing schema/version contract and should be checked before adapters load parquet outputs.
 
 ## Tests
 

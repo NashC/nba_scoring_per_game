@@ -7,7 +7,10 @@ import pandas as pd
 from nba_scoring_per_game.transforms import (
     add_game_time_columns,
     add_score_context_columns,
+    build_burst_timeline,
+    build_half_timeline,
     build_player_scoring_timeline,
+    build_quarter_timeline,
     extract_scoring_events,
     parse_clock_to_seconds_remaining,
     summarize_player_bursts,
@@ -220,6 +223,8 @@ class TransformTests(unittest.TestCase):
         self.assertEqual(int(home_row["final_points"]), 5)
         self.assertEqual(int(home_row["num_scoring_events"]), 3)
         self.assertEqual(int(home_row["max_cumulative_points"]), 5)
+        self.assertEqual(int(home_row["final_player_team_score"]), 5)
+        self.assertEqual(int(home_row["final_opponent_score"]), 7)
         self.assertEqual(int(home_row["final_player_team_margin"]), -2)
         self.assertEqual(float(home_row["pct_scoring_events_within_3"]), 1.0)
         self.assertEqual(int(home_row["max_lead_during_scoring_events"]), 2)
@@ -234,6 +239,8 @@ class TransformTests(unittest.TestCase):
         self.assertEqual(int(home_row["best_half_points"]), 3)
         self.assertEqual(int(home_row["best_60_sec_points"]), 2)
         self.assertEqual(int(away_row["final_points"]), 7)
+        self.assertEqual(int(away_row["final_player_team_score"]), 7)
+        self.assertEqual(int(away_row["final_opponent_score"]), 5)
         self.assertEqual(int(away_row["final_player_team_margin"]), 2)
         self.assertEqual(int(away_row["max_deficit_during_scoring_events"]), 0)
         self.assertEqual(int(away_row["points_from_3s"]), 3)
@@ -259,6 +266,120 @@ class TransformTests(unittest.TestCase):
         self.assertEqual(int(home_burst_60["points_in_window"]), 2)
         self.assertEqual(int(home_burst_60["start_period"]), 1)
         self.assertEqual(home_burst_60["start_clock"], "PT11M30.00S")
+
+        selected_quarter = build_quarter_timeline(timeline, game_id="game-1", player_id=100, quarter_number=1)
+        self.assertEqual(selected_quarter["action_id"].tolist(), [10])
+
+        selected_half = build_half_timeline(
+            build_player_scoring_timeline(scoring_events),
+            game_id="game-1",
+            player_id=100,
+            half_index=1,
+        )
+        self.assertEqual(selected_half["action_id"].tolist(), [10, 12])
+
+    def test_build_burst_timeline_derives_local_cumulative_points(self) -> None:
+        scoring_events = pd.DataFrame(
+            [
+                {
+                    "season": "2023-24",
+                    "season_type": "Regular Season",
+                    "game_date": "2024-01-01",
+                    "game_id": "burst-game",
+                    "action_number": 1,
+                    "action_id": 1,
+                    "player_id": 100,
+                    "player_name": "Burst Scorer",
+                    "team_id": 1,
+                    "team_tricode": "HOM",
+                    "period": 1,
+                    "clock": "PT11M50.00S",
+                    "point_value": 1,
+                    "is_field_goal": False,
+                    "score_home": 1,
+                    "score_away": 0,
+                    "action_type": "Free Throw",
+                    "sub_type": "Free Throw 1 of 1",
+                    "description": "Burst Scorer Free Throw",
+                    "location": "h",
+                },
+                {
+                    "season": "2023-24",
+                    "season_type": "Regular Season",
+                    "game_date": "2024-01-01",
+                    "game_id": "burst-game",
+                    "action_number": 2,
+                    "action_id": 2,
+                    "player_id": 100,
+                    "player_name": "Burst Scorer",
+                    "team_id": 1,
+                    "team_tricode": "HOM",
+                    "period": 1,
+                    "clock": "PT11M30.00S",
+                    "point_value": 2,
+                    "is_field_goal": True,
+                    "score_home": 3,
+                    "score_away": 0,
+                    "action_type": "Made Shot",
+                    "sub_type": "Jump Shot",
+                    "description": "Burst Scorer Jump Shot",
+                    "location": "h",
+                },
+                {
+                    "season": "2023-24",
+                    "season_type": "Regular Season",
+                    "game_date": "2024-01-01",
+                    "game_id": "burst-game",
+                    "action_number": 3,
+                    "action_id": 3,
+                    "player_id": 100,
+                    "player_name": "Burst Scorer",
+                    "team_id": 1,
+                    "team_tricode": "HOM",
+                    "period": 1,
+                    "clock": "PT11M05.00S",
+                    "point_value": 3,
+                    "is_field_goal": True,
+                    "score_home": 6,
+                    "score_away": 0,
+                    "action_type": "Made Shot",
+                    "sub_type": "Jump Shot",
+                    "description": "Burst Scorer 3PT Jump Shot",
+                    "location": "h",
+                },
+                {
+                    "season": "2023-24",
+                    "season_type": "Regular Season",
+                    "game_date": "2024-01-01",
+                    "game_id": "burst-game",
+                    "action_number": 4,
+                    "action_id": 4,
+                    "player_id": 100,
+                    "player_name": "Burst Scorer",
+                    "team_id": 1,
+                    "team_tricode": "HOM",
+                    "period": 1,
+                    "clock": "PT10M40.00S",
+                    "point_value": 2,
+                    "is_field_goal": True,
+                    "score_home": 8,
+                    "score_away": 0,
+                    "action_type": "Made Shot",
+                    "sub_type": "Layup Shot",
+                    "description": "Burst Scorer Layup",
+                    "location": "h",
+                },
+            ]
+        )
+
+        timeline = build_player_scoring_timeline(scoring_events)
+        burst_summary = summarize_player_bursts(scoring_events)
+        best_60 = burst_summary.loc[burst_summary["burst_window_seconds"].eq(60)].iloc[0]
+        burst_timeline = build_burst_timeline(timeline, best_60)
+
+        self.assertEqual(burst_timeline["action_id"].tolist(), [2, 3, 4])
+        self.assertEqual(burst_timeline["burst_cumulative_points"].tolist(), [2, 5, 7])
+        self.assertEqual(burst_timeline["burst_elapsed_seconds"].tolist(), [0.0, 25.0, 50.0])
 
     def test_extract_scoring_events_uses_score_deltas_and_action_id_order(self) -> None:
         raw_df = pd.DataFrame(

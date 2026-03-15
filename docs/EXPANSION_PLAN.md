@@ -1,50 +1,85 @@
-# Phase 2 Plan: Analytics and Comparison Expansion for the NBA Scoring Trajectory System
+# Scoring Explorer Roadmap
 
-## Summary
+## Current status
 
-- Extend the current pipeline in this repo and define the app-layer work needed in the existing scoring trajectory app; do not redesign the core chart or create a separate system.
-- Keep the current player-game event and timeline flow as the base, then add quarter-, half-, and burst-level derived datasets plus UI modes that consume them.
-- The current workspace contains the backend only; app-specific work from this plan is an integration contract for the separate app codebase.
+The repo now includes:
 
-## Key Changes
+- the validated parquet-producing backend pipeline
+- a single-page Dash + Plotly scoring explorer
 
-### Data and pipeline
+Implemented in the app today:
 
-- Keep `raw_scoring_events` and `player_scoring_timelines` as canonical event-level outputs and extend timelines with normalized game/quarter/half time, scorer-perspective score-differential context, cumulative shot-component fields, and `projected_48`.
-- Extend `player_game_summaries` with shot-mix totals and shares, `points_per_minute`, `offensive_share`, `competitive_points`, `competitive_scoring_share`, `trailing_points`, `trailing_scoring_rate`, `peak_projected_48`, `best_60_sec_points`, `best_2_min_points`, `best_3_min_points`, `best_5_min_points`, `best_10_min_points`, `best_quarter_points`, `best_half_points`, `ts_pct`, and `efg_pct`.
-- Add `player_quarter_summaries`, `player_half_summaries`, and `player_burst_summaries` as new curated outputs for quarter, half, and burst rankings.
-- Precompute fixed burst windows of `60`, `120`, `180`, `300`, and `600` seconds so the app does not need to scan windows client-side.
+- full-game, quarter, half, and burst comparison modes
+- raw and normalized time views
+- scoring-event markers by `scoring_type`
+- margin-context line coloring with a visible `margin_bucket` legend
+- a synchronized secondary analysis panel for:
+  - rolling points in trailing windows
+  - rolling points-per-minute in trailing windows
+  - projected 48-minute pace
+- query-driven presets
+- URL-persisted filters and comparison selections
+- richer detail cards with final score, efficiency, burden, and burst summaries
+- leaderboard CSV export and chart-image export through Plotly
 
-### App behavior and UX
+## Stable data/app contract
 
-- Keep the existing cumulative scoring line chart as the default full-game view and add optional scoring-event markers colored by `scoring_type`.
-- Add a line or context color mode driven by score-differential buckets so the chart distinguishes trailing, close, and blowout scoring.
-- Expand tooltips to show player, opponent, date/season, period, game minute, cumulative points, event points, shot type, score after play, score differential, and projected pace.
-- Add comparison modes for `full game`, `quarter`, `half`, and `burst`, plus `raw` vs `normalized` time toggles.
-- Add leaderboard views that rank by total points, scoring rate, burst metrics, quarter and half peaks, offensive share, efficiency, and projected pace.
-- Add a detail panel that summarizes the selected game, quarter, half, or burst interval.
+The app continues to treat these outputs as canonical:
 
-### Data loading and integration
+- `raw_scoring_events`
+- `player_scoring_timelines`
+- `player_game_summaries`
+- `player_quarter_summaries`
+- `player_half_summaries`
+- `player_burst_summaries`
 
-- Keep expensive feature engineering in the backend: the app should load summary tables for leaderboards and filters first, then request event-level timelines only for selected comparisons.
-- Reuse a single comparison model keyed by entity grain plus interval metadata so games, quarters, halves, and bursts can share chart, tooltip, and detail-panel patterns.
-- Add schema and version checks between parquet outputs and app-side data adapters so contract changes fail loudly.
+Important semantics that remain fixed:
 
-## Public Interfaces
+- `projected_48` stays null until one minute of game time has elapsed
+- burst windows stay fixed at `60`, `120`, `180`, `300`, and `600` seconds
+- `competitive_only` remains a strict alias for `competitive_scoring_share == 1.0`
+- app-side era filtering is derived from season start decade at load time
 
-- `process_game(...)` now returns quarter, half, and burst summaries in addition to the existing outputs.
-- `query_player_games(...)` now accepts `entity_mode`, `ranking_metric`, `competitive_only`, `include_ot`, and `burst_window` so one query path can serve multiple leaderboard grains.
-- The CLI `query-summaries` command now supports `game`, `quarter`, `half`, and `burst` entity modes.
+## Highest-value next improvements
 
-## Test Plan
+### Phase 5: refinement and usability
 
-- Backend unit tests cover normalized time math, cumulative shot-component fields, scorer-perspective context, `projected_48`, quarter and half summaries, burst windows, offensive share, and rate metrics.
-- Integration tests validate that game-, quarter-, half-, and burst-level summaries reconcile to the underlying event timelines and official box-score totals.
-- App-side tests, to be implemented in the app repo, should cover shot markers, context-color toggles, tooltip content, mode switching, normalized-time rendering, leaderboard sorting, and drill-down behavior.
+- add more polished period-aware hover formatting for quarter, half, and burst views
+- improve comparison management with keyboard-friendly add/remove behavior
+- add stronger filtered-empty messages and guidance for incompatible control combinations
+- add optional annotations or badges for benchmark lines and best-burst windows in the detail area
 
-## Assumptions and Defaults
+### Phase 6: richer exploration surfaces
 
-- `PlayByPlayV3` remains the canonical event source.
-- Default competitiveness logic is `abs(score_diff) <= 10`.
-- Default burst windows are `60`, `120`, `180`, `300`, and `600` seconds.
-- `ts_pct` and `efg_pct` are sourced from official box-score makes and attempts when available; they are left null rather than approximated from scoring events.
+- add secondary leaderboard tabs or preset views for:
+  - best quarters ever
+  - best halves ever
+  - best bursts ever
+  - competitive high-scoring games
+- expose `ts_pct`, `efg_pct`, and `offensive_share` more prominently in the leaderboard itself
+- add saved comparison bundles built from filters and rankings rather than hardcoded player buttons
+
+### Backend polish
+
+- add a shared test-fixture module so pipeline and dashboard tests stop duplicating sample-game builders
+- consider a lightweight summary index if parquet scans become expensive on larger local datasets
+- consider caching already-sliced entity timelines in memory if comparison loads become heavier
+
+## Acceptance targets from here
+
+The app should continue to cleanly support:
+
+- top 50 scoring games in history
+- best quarters ever
+- best halves ever
+- best 3-minute, 5-minute, and 10-minute bursts
+- `60+` point games filtered by `min_competitive_share`
+- ranking by `offensive_share`, `ts_pct`, and `peak_projected_48`
+- comparing shot-mix and competitiveness profiles across elite scoring performances
+
+## Constraints
+
+- keep the app read-only in v1
+- keep parquet as the storage contract
+- keep burst computation out of the UI
+- preserve the single shared chart model instead of branching into separate mode-specific apps
