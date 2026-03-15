@@ -1,11 +1,13 @@
 from __future__ import annotations
 
 import re
-from typing import Any
+from typing import Any, Iterable
 
 import pandas as pd
 
 SCORING_ACTION_TYPES = {"Made Shot", "Free Throw"}
+COMPETITIVE_MARGIN_THRESHOLD = 10
+BURST_WINDOW_SECONDS = (60, 120, 180, 300, 600)
 RAW_SCORING_COLUMNS = [
     "season",
     "season_type",
@@ -30,16 +32,40 @@ RAW_SCORING_COLUMNS = [
 ]
 TIMELINE_COLUMNS = RAW_SCORING_COLUMNS + [
     "seconds_remaining_in_period",
+    "period_duration_seconds",
+    "quarter_time_elapsed",
+    "quarter_time_normalized",
     "elapsed_seconds_in_game",
     "elapsed_minutes_in_game",
+    "game_minute",
+    "total_game_seconds",
+    "total_game_minutes",
+    "game_time_normalized",
+    "half_index",
+    "half_label",
+    "half_time_elapsed",
+    "half_time_normalized",
+    "is_overtime",
     "player_game_cumulative_points",
     "player_game_final_points",
+    "player_quarter_cumulative_points",
+    "player_quarter_final_points",
+    "player_half_cumulative_points",
+    "player_half_final_points",
+    "cumulative_2pt_points",
+    "cumulative_3pt_points",
+    "cumulative_ft_points",
     "player_team_score_after",
     "opponent_score_after",
     "player_team_margin_after",
     "abs_margin_after",
+    "score_diff",
+    "abs_score_diff",
+    "is_competitive_moment",
+    "margin_bucket",
     "scoring_type",
     "competitiveness_bucket",
+    "projected_48",
 ]
 SUMMARY_COLUMNS = [
     "season",
@@ -63,6 +89,126 @@ SUMMARY_COLUMNS = [
     "pct_scoring_events_within_10",
     "max_lead_during_scoring_events",
     "max_deficit_during_scoring_events",
+    "points_from_2s",
+    "points_from_3s",
+    "points_from_fts",
+    "share_points_from_2s",
+    "share_points_from_3s",
+    "share_points_from_fts",
+    "minutes_played",
+    "points_per_minute",
+    "offensive_share",
+    "competitive_points",
+    "competitive_scoring_share",
+    "trailing_points",
+    "trailing_scoring_rate",
+    "peak_projected_48",
+    "best_60_sec_points",
+    "best_2_min_points",
+    "best_3_min_points",
+    "best_5_min_points",
+    "best_10_min_points",
+    "best_quarter_points",
+    "best_half_points",
+    "ts_pct",
+    "efg_pct",
+    "went_to_overtime",
+    "total_game_minutes",
+]
+QUARTER_SUMMARY_COLUMNS = [
+    "season",
+    "season_type",
+    "game_date",
+    "game_id",
+    "player_id",
+    "player_name",
+    "team_id",
+    "team_tricode",
+    "quarter_number",
+    "quarter_label",
+    "is_overtime_quarter",
+    "quarter_points",
+    "num_scoring_events",
+    "quarter_duration_minutes",
+    "points_per_minute",
+    "interval_start_seconds_in_game",
+    "interval_end_seconds_in_game",
+    "avg_margin_during_scoring_events",
+    "median_margin_during_scoring_events",
+    "avg_abs_margin_during_scoring_events",
+    "median_abs_margin_during_scoring_events",
+    "competitive_points",
+    "competitive_scoring_share",
+    "points_from_2s",
+    "points_from_3s",
+    "points_from_fts",
+    "share_points_from_2s",
+    "share_points_from_3s",
+    "share_points_from_fts",
+]
+HALF_SUMMARY_COLUMNS = [
+    "season",
+    "season_type",
+    "game_date",
+    "game_id",
+    "player_id",
+    "player_name",
+    "team_id",
+    "team_tricode",
+    "half_index",
+    "half_label",
+    "half_points",
+    "num_scoring_events",
+    "half_duration_minutes",
+    "points_per_minute",
+    "interval_start_seconds_in_game",
+    "interval_end_seconds_in_game",
+    "avg_margin_during_scoring_events",
+    "median_margin_during_scoring_events",
+    "avg_abs_margin_during_scoring_events",
+    "median_abs_margin_during_scoring_events",
+    "competitive_points",
+    "competitive_scoring_share",
+    "points_from_2s",
+    "points_from_3s",
+    "points_from_fts",
+    "share_points_from_2s",
+    "share_points_from_3s",
+    "share_points_from_fts",
+]
+BURST_SUMMARY_COLUMNS = [
+    "season",
+    "season_type",
+    "game_date",
+    "game_id",
+    "player_id",
+    "player_name",
+    "team_id",
+    "team_tricode",
+    "burst_window_seconds",
+    "burst_window_label",
+    "points_in_window",
+    "num_scoring_events",
+    "window_start_seconds_in_game",
+    "window_end_seconds_in_game",
+    "start_period",
+    "start_clock",
+    "end_period",
+    "end_clock",
+    "includes_overtime",
+    "window_points_per_minute",
+    "avg_score_diff_in_window",
+    "median_score_diff_in_window",
+    "avg_abs_score_diff_in_window",
+    "competitive_points_in_window",
+    "competitive_scoring_share",
+    "trailing_points_in_window",
+    "points_from_2s",
+    "points_from_3s",
+    "points_from_fts",
+    "share_points_from_2s",
+    "share_points_from_3s",
+    "share_points_from_fts",
 ]
 METADATA_COLUMNS = ["season", "season_type", "game_date"]
 CLOCK_PATTERN = re.compile(r"^PT(?:(?P<minutes>\d+)M)?(?:(?P<seconds>\d+(?:\.\d+)?)S)?$")
@@ -150,7 +296,12 @@ def extract_scoring_events(
 
     if scoring.empty:
         empty_df = pd.DataFrame(columns=RAW_SCORING_COLUMNS)
-        return _ensure_metadata_columns(empty_df, season=season, season_type=season_type, game_date=game_date)
+        return _ensure_metadata_columns(
+            empty_df,
+            season=season,
+            season_type=season_type,
+            game_date=game_date,
+        )
 
     scoring["game_id"] = scoring["gameId"].astype(str)
     if game_id is not None and not scoring["game_id"].eq(str(game_id)).all():
@@ -257,13 +408,14 @@ def extract_scoring_events(
 
 
 def add_game_time_columns(scoring_events_df: pd.DataFrame) -> pd.DataFrame:
-    """Add forward-moving game time columns for regulation and overtime."""
+    """Add forward-moving and normalized game/quarter/half time columns."""
     if scoring_events_df.empty:
         return _ensure_metadata_columns(scoring_events_df.copy())
 
     df = _ensure_metadata_columns(scoring_events_df.copy())
-    _require_columns(df, ["period", "clock"])
+    _require_columns(df, ["game_id", "period", "clock"])
     df["seconds_remaining_in_period"] = df["clock"].map(parse_clock_to_seconds_remaining)
+    df["period_duration_seconds"] = df["period"].map(_period_duration_seconds).astype(float)
     regulation_mask = df["period"] <= 4
 
     invalid_regulation_clock = regulation_mask & ~df["seconds_remaining_in_period"].between(0, 720)
@@ -278,21 +430,54 @@ def add_game_time_columns(scoring_events_df: pd.DataFrame) -> pd.DataFrame:
             f"Sample problem rows:\n{sample.to_string(index=False)}"
         )
 
+    quarter_elapsed_seconds = df["period_duration_seconds"] - df["seconds_remaining_in_period"]
+    df["quarter_time_elapsed"] = quarter_elapsed_seconds / 60.0
+    df["quarter_time_normalized"] = quarter_elapsed_seconds / df["period_duration_seconds"]
+
     df["elapsed_seconds_in_game"] = 0.0
     df.loc[regulation_mask, "elapsed_seconds_in_game"] = (
         (df.loc[regulation_mask, "period"] - 1) * 720
-        + (720 - df.loc[regulation_mask, "seconds_remaining_in_period"])
+        + quarter_elapsed_seconds.loc[regulation_mask]
     )
     df.loc[~regulation_mask, "elapsed_seconds_in_game"] = (
         2880
         + (df.loc[~regulation_mask, "period"] - 5) * 300
-        + (300 - df.loc[~regulation_mask, "seconds_remaining_in_period"])
+        + quarter_elapsed_seconds.loc[~regulation_mask]
     )
     df["elapsed_minutes_in_game"] = df["elapsed_seconds_in_game"] / 60.0
+    df["game_minute"] = df["elapsed_minutes_in_game"]
+    game_max_period = (
+        df.groupby("game_id", dropna=False)["period"].transform("max").astype("Int64")
+    )
+    df["total_game_seconds"] = game_max_period.map(_total_game_seconds_from_period).astype(float)
+    df["total_game_minutes"] = df["total_game_seconds"] / 60.0
+    df["game_time_normalized"] = df["elapsed_seconds_in_game"] / df["total_game_seconds"]
+    df["is_overtime"] = df["period"] > 4
+
+    df["half_index"] = pd.NA
+    df.loc[df["period"].between(1, 2), "half_index"] = 1
+    df.loc[df["period"].between(3, 4), "half_index"] = 2
+    df["half_label"] = df["half_index"].map({1: "1H", 2: "2H"})
+    df.loc[df["is_overtime"], "half_label"] = "OT"
+    df["half_time_elapsed"] = pd.NA
+    df.loc[df["period"].between(1, 2), "half_time_elapsed"] = (
+        df.loc[df["period"].between(1, 2), "elapsed_seconds_in_game"] / 60.0
+    )
+    df.loc[df["period"].between(3, 4), "half_time_elapsed"] = (
+        (df.loc[df["period"].between(3, 4), "elapsed_seconds_in_game"] - 1440.0) / 60.0
+    )
+    df["half_time_normalized"] = pd.NA
+    half_mask = df["half_index"].notna()
+    df.loc[half_mask, "half_time_normalized"] = pd.to_numeric(
+        df.loc[half_mask, "half_time_elapsed"], errors="coerce"
+    ) / 24.0
     return df
 
 
-def add_score_context_columns(scoring_events_df: pd.DataFrame) -> pd.DataFrame:
+def add_score_context_columns(
+    scoring_events_df: pd.DataFrame,
+    competitive_margin_threshold: int = COMPETITIVE_MARGIN_THRESHOLD,
+) -> pd.DataFrame:
     """Add scorer-perspective score differential context columns."""
     if scoring_events_df.empty:
         return _ensure_metadata_columns(scoring_events_df.copy())
@@ -318,8 +503,12 @@ def add_score_context_columns(scoring_events_df: pd.DataFrame) -> pd.DataFrame:
         df["player_team_score_after"] - df["opponent_score_after"]
     ).astype("Int64")
     df["abs_margin_after"] = df["player_team_margin_after"].abs().astype("Int64")
+    df["score_diff"] = df["player_team_margin_after"]
+    df["abs_score_diff"] = df["abs_margin_after"]
+    df["is_competitive_moment"] = df["abs_score_diff"] <= competitive_margin_threshold
     df["scoring_type"] = df.apply(_scoring_type_label, axis=1)
     df["competitiveness_bucket"] = df["abs_margin_after"].map(_competitiveness_bucket)
+    df["margin_bucket"] = df["score_diff"].map(_margin_bucket)
     return df
 
 
@@ -329,7 +518,7 @@ def build_player_scoring_timeline(
     player_name: str | None = None,
     game_id: str | None = None,
 ) -> pd.DataFrame:
-    """Build a chart-ready cumulative scoring timeline."""
+    """Build a chart-ready cumulative scoring timeline with normalized analytics fields."""
     df = _ensure_metadata_columns(scoring_events_df.copy())
     _require_columns(df, ["game_id", "action_id", "player_id", "player_name", "point_value"])
     if "seconds_remaining_in_period" not in df.columns:
@@ -338,12 +527,55 @@ def build_player_scoring_timeline(
         df = add_score_context_columns(df)
 
     df = df.sort_values(["game_id", "action_id"]).reset_index(drop=True)
-    group_columns = ["season", "season_type", "game_date", "game_id", "player_id"]
+    df = _with_point_component_columns(df)
+    player_game_columns = ["season", "season_type", "game_date", "game_id", "player_id"]
+    player_quarter_columns = player_game_columns + ["period"]
+    player_half_columns = player_game_columns + ["half_index"]
+
     df["player_game_cumulative_points"] = (
-        df.groupby(group_columns, dropna=False)["point_value"].cumsum().astype("Int64")
+        df.groupby(player_game_columns, dropna=False)["point_value"].cumsum().astype("Int64")
     )
     df["player_game_final_points"] = (
-        df.groupby(group_columns, dropna=False)["point_value"].transform("sum").astype("Int64")
+        df.groupby(player_game_columns, dropna=False)["point_value"].transform("sum").astype("Int64")
+    )
+    df["player_quarter_cumulative_points"] = (
+        df.groupby(player_quarter_columns, dropna=False)["point_value"].cumsum().astype("Int64")
+    )
+    df["player_quarter_final_points"] = (
+        df.groupby(player_quarter_columns, dropna=False)["point_value"].transform("sum").astype("Int64")
+    )
+    df["player_half_cumulative_points"] = pd.NA
+    df["player_half_final_points"] = pd.NA
+    half_mask = df["half_index"].notna()
+    df.loc[half_mask, "player_half_cumulative_points"] = (
+        df.loc[half_mask]
+        .groupby(player_half_columns, dropna=False)["point_value"]
+        .cumsum()
+        .astype("Int64")
+    )
+    df.loc[half_mask, "player_half_final_points"] = (
+        df.loc[half_mask]
+        .groupby(player_half_columns, dropna=False)["point_value"]
+        .transform("sum")
+        .astype("Int64")
+    )
+
+    df["cumulative_2pt_points"] = (
+        df.groupby(player_game_columns, dropna=False)["points_2pt"].cumsum().astype("Int64")
+    )
+    df["cumulative_3pt_points"] = (
+        df.groupby(player_game_columns, dropna=False)["points_3pt"].cumsum().astype("Int64")
+    )
+    df["cumulative_ft_points"] = (
+        df.groupby(player_game_columns, dropna=False)["points_ft"].cumsum().astype("Int64")
+    )
+    elapsed_minutes = df["elapsed_minutes_in_game"].astype(float)
+    df["projected_48"] = pd.NA
+    valid_projection = elapsed_minutes >= 1.0
+    df.loc[valid_projection, "projected_48"] = (
+        df.loc[valid_projection, "player_game_cumulative_points"].astype(float)
+        / elapsed_minutes.loc[valid_projection]
+        * 48.0
     )
 
     if game_id is not None:
@@ -356,20 +588,27 @@ def build_player_scoring_timeline(
     return df[TIMELINE_COLUMNS].reset_index(drop=True)
 
 
-def summarize_player_games(scoring_events_df: pd.DataFrame) -> pd.DataFrame:
+def summarize_player_games(
+    scoring_events_df: pd.DataFrame,
+    boxscore_df: pd.DataFrame | None = None,
+) -> pd.DataFrame:
     """Aggregate one row per player-game for ranking and filtering."""
     timeline = build_player_scoring_timeline(scoring_events_df)
     if timeline.empty:
         return pd.DataFrame(columns=SUMMARY_COLUMNS)
 
     timeline = timeline.sort_values(["game_id", "player_id", "action_id"]).reset_index(drop=True)
+    timeline = _with_point_component_columns(timeline)
     game_columns = ["season", "season_type", "game_date", "game_id"]
     group_columns = game_columns + ["player_id", "player_name", "team_id", "team_tricode"]
 
     game_final_scores = (
-        timeline.sort_values(["game_id", "action_id"])
-        .groupby(game_columns, dropna=False, as_index=False)
-        .agg(final_score_home=("score_home", "last"), final_score_away=("score_away", "last"))
+        timeline.groupby(game_columns, dropna=False, as_index=False)
+        .agg(
+            final_score_home=("score_home", "last"),
+            final_score_away=("score_away", "last"),
+            total_game_minutes=("total_game_minutes", "max"),
+        )
     )
     summary = (
         timeline.groupby(group_columns, dropna=False, as_index=False)
@@ -382,11 +621,17 @@ def summarize_player_games(scoring_events_df: pd.DataFrame) -> pd.DataFrame:
             median_margin_during_scoring_events=("player_team_margin_after", "median"),
             avg_abs_margin_during_scoring_events=("abs_margin_after", "mean"),
             median_abs_margin_during_scoring_events=("abs_margin_after", "median"),
-            pct_scoring_events_within_3=("abs_margin_after", lambda s: float((s <= 3).mean())),
-            pct_scoring_events_within_5=("abs_margin_after", lambda s: float((s <= 5).mean())),
-            pct_scoring_events_within_10=("abs_margin_after", lambda s: float((s <= 10).mean())),
-            max_lead_during_scoring_events=("player_team_margin_after", lambda s: int(s.clip(lower=0).max())),
-            max_deficit_during_scoring_events=("player_team_margin_after", lambda s: int((-s.clip(upper=0)).max())),
+            pct_scoring_events_within_3=("abs_score_diff", lambda s: float((s <= 3).mean())),
+            pct_scoring_events_within_5=("abs_score_diff", lambda s: float((s <= 5).mean())),
+            pct_scoring_events_within_10=("abs_score_diff", lambda s: float((s <= 10).mean())),
+            max_lead_during_scoring_events=("score_diff", lambda s: int(s.clip(lower=0).max())),
+            max_deficit_during_scoring_events=("score_diff", lambda s: int((-s.clip(upper=0)).max())),
+            points_from_2s=("points_2pt", "sum"),
+            points_from_3s=("points_3pt", "sum"),
+            points_from_fts=("points_ft", "sum"),
+            competitive_points=("competitive_point_value", "sum"),
+            trailing_points=("trailing_point_value", "sum"),
+            peak_projected_48=("projected_48", lambda s: float(pd.to_numeric(s, errors="coerce").max()) if pd.to_numeric(s, errors="coerce").notna().any() else pd.NA),
         )
         .sort_values(["final_points", "game_id", "player_id"], ascending=[False, True, True])
         .reset_index(drop=True)
@@ -400,8 +645,184 @@ def summarize_player_games(scoring_events_df: pd.DataFrame) -> pd.DataFrame:
             summary["final_score_away"] - summary["final_score_home"],
         )
     ).astype("Int64")
+    summary["offensive_share"] = (
+        summary["final_points"].astype(float)
+        / summary["final_score_home"].where(is_home, summary["final_score_away"]).astype(float)
+    )
+    summary["share_points_from_2s"] = _safe_ratio(summary["points_from_2s"], summary["final_points"])
+    summary["share_points_from_3s"] = _safe_ratio(summary["points_from_3s"], summary["final_points"])
+    summary["share_points_from_fts"] = _safe_ratio(summary["points_from_fts"], summary["final_points"])
+    summary["competitive_scoring_share"] = _safe_ratio(summary["competitive_points"], summary["final_points"])
+    summary["went_to_overtime"] = summary["total_game_minutes"].astype(float) > 48.0
+
+    if boxscore_df is not None and not boxscore_df.empty:
+        metrics = _prepare_boxscore_metrics(boxscore_df)
+        summary = summary.merge(metrics, on=["game_id", "team_id", "player_id"], how="left")
+    else:
+        summary["minutes_played"] = pd.NA
+        summary["ts_pct"] = pd.NA
+        summary["efg_pct"] = pd.NA
+
+    summary["points_per_minute"] = _safe_ratio(summary["final_points"], summary["minutes_played"])
+    summary["trailing_scoring_rate"] = _safe_ratio(summary["trailing_points"], summary["minutes_played"])
+
+    quarter_summary = summarize_player_quarters(scoring_events_df)
+    half_summary = summarize_player_halves(scoring_events_df)
+    burst_summary = summarize_player_bursts(scoring_events_df)
+
+    summary = summary.merge(
+        quarter_summary.groupby(["game_id", "player_id"], as_index=False)
+        .agg(best_quarter_points=("quarter_points", "max")),
+        on=["game_id", "player_id"],
+        how="left",
+    )
+    summary = summary.merge(
+        half_summary.groupby(["game_id", "player_id"], as_index=False)
+        .agg(best_half_points=("half_points", "max")),
+        on=["game_id", "player_id"],
+        how="left",
+    )
+    burst_pivot = (
+        burst_summary.pivot_table(
+            index=["game_id", "player_id"],
+            columns="burst_window_seconds",
+            values="points_in_window",
+            aggfunc="first",
+        )
+        .rename(
+            columns={
+                60: "best_60_sec_points",
+                120: "best_2_min_points",
+                180: "best_3_min_points",
+                300: "best_5_min_points",
+                600: "best_10_min_points",
+            }
+        )
+        .reset_index()
+    )
+    summary = summary.merge(burst_pivot, on=["game_id", "player_id"], how="left")
+    for column in [
+        "best_60_sec_points",
+        "best_2_min_points",
+        "best_3_min_points",
+        "best_5_min_points",
+        "best_10_min_points",
+        "best_quarter_points",
+        "best_half_points",
+    ]:
+        if column not in summary.columns:
+            summary[column] = pd.NA
+
     summary = summary.drop(columns=["player_location", "final_score_home", "final_score_away"])
     return summary[SUMMARY_COLUMNS]
+
+
+def summarize_player_quarters(scoring_events_df: pd.DataFrame) -> pd.DataFrame:
+    """Aggregate one row per player-quarter."""
+    timeline = build_player_scoring_timeline(scoring_events_df)
+    if timeline.empty:
+        return pd.DataFrame(columns=QUARTER_SUMMARY_COLUMNS)
+
+    group_columns = [
+        "season",
+        "season_type",
+        "game_date",
+        "game_id",
+        "player_id",
+        "player_name",
+        "team_id",
+        "team_tricode",
+        "period",
+    ]
+    summary = (
+        timeline.groupby(group_columns, dropna=False, as_index=False)
+        .apply(_aggregate_interval_summary, entity="quarter")
+        .reset_index(drop=True)
+    )
+    summary["quarter_number"] = summary["period"].astype("Int64")
+    summary["quarter_label"] = summary["quarter_number"].map(_period_label)
+    summary["is_overtime_quarter"] = summary["quarter_number"].astype(int) > 4
+    summary = summary.rename(
+        columns={
+            "interval_points": "quarter_points",
+            "interval_duration_minutes": "quarter_duration_minutes",
+        }
+    )
+    return summary[QUARTER_SUMMARY_COLUMNS]
+
+
+def summarize_player_halves(scoring_events_df: pd.DataFrame) -> pd.DataFrame:
+    """Aggregate one row per player-half for regulation halves only."""
+    timeline = build_player_scoring_timeline(scoring_events_df)
+    if timeline.empty:
+        return pd.DataFrame(columns=HALF_SUMMARY_COLUMNS)
+
+    timeline = timeline.loc[timeline["half_index"].notna()].copy()
+    if timeline.empty:
+        return pd.DataFrame(columns=HALF_SUMMARY_COLUMNS)
+
+    group_columns = [
+        "season",
+        "season_type",
+        "game_date",
+        "game_id",
+        "player_id",
+        "player_name",
+        "team_id",
+        "team_tricode",
+        "half_index",
+        "half_label",
+    ]
+    summary = (
+        timeline.groupby(group_columns, dropna=False, as_index=False)
+        .apply(_aggregate_interval_summary, entity="half")
+        .reset_index(drop=True)
+    )
+    summary = summary.rename(
+        columns={
+            "interval_points": "half_points",
+            "interval_duration_minutes": "half_duration_minutes",
+        }
+    )
+    return summary[HALF_SUMMARY_COLUMNS]
+
+
+def summarize_player_bursts(
+    scoring_events_df: pd.DataFrame,
+    window_seconds: Iterable[int] = BURST_WINDOW_SECONDS,
+) -> pd.DataFrame:
+    """Aggregate one row per player-game burst window."""
+    timeline = build_player_scoring_timeline(scoring_events_df)
+    if timeline.empty:
+        return pd.DataFrame(columns=BURST_SUMMARY_COLUMNS)
+
+    results: list[dict[str, Any]] = []
+    for (_, _, _, game_id, player_id), player_df in timeline.groupby(
+        ["season", "season_type", "game_date", "game_id", "player_id"],
+        dropna=False,
+    ):
+        player_df = player_df.sort_values(["elapsed_seconds_in_game", "action_id"]).reset_index(drop=True)
+        base_row = player_df.iloc[0]
+        for window in window_seconds:
+            burst = _best_burst_window(player_df, int(window))
+            results.append(
+                {
+                    "season": base_row["season"],
+                    "season_type": base_row["season_type"],
+                    "game_date": base_row["game_date"],
+                    "game_id": game_id,
+                    "player_id": player_id,
+                    "player_name": base_row["player_name"],
+                    "team_id": base_row["team_id"],
+                    "team_tricode": base_row["team_tricode"],
+                    "burst_window_seconds": int(window),
+                    "burst_window_label": _burst_window_label(int(window)),
+                    **burst,
+                }
+            )
+    if not results:
+        return pd.DataFrame(columns=BURST_SUMMARY_COLUMNS)
+    return pd.DataFrame(results)[BURST_SUMMARY_COLUMNS]
 
 
 def parse_clock_to_seconds_remaining(clock: str) -> float:
@@ -413,6 +834,171 @@ def parse_clock_to_seconds_remaining(clock: str) -> float:
     minutes = int(match.group("minutes") or 0)
     seconds = float(match.group("seconds") or 0.0)
     return minutes * 60 + seconds
+
+
+def _aggregate_interval_summary(group_df: pd.DataFrame, entity: str) -> pd.Series:
+    interval_points = int(group_df["point_value"].sum())
+    duration_minutes = _interval_duration_minutes(group_df, entity)
+    points_from_2s = int(group_df.loc[group_df["scoring_type"].eq("2PT"), "point_value"].sum())
+    points_from_3s = int(group_df.loc[group_df["scoring_type"].eq("3PT"), "point_value"].sum())
+    points_from_fts = int(group_df.loc[group_df["scoring_type"].eq("FT"), "point_value"].sum())
+    competitive_points = int(group_df.loc[group_df["is_competitive_moment"], "point_value"].sum())
+    return pd.Series(
+        {
+            "interval_points": interval_points,
+            "num_scoring_events": int(len(group_df)),
+            "interval_duration_minutes": duration_minutes,
+            "points_per_minute": _safe_scalar_ratio(interval_points, duration_minutes),
+            "interval_start_seconds_in_game": float(group_df["elapsed_seconds_in_game"].min()),
+            "interval_end_seconds_in_game": float(group_df["elapsed_seconds_in_game"].max()),
+            "avg_margin_during_scoring_events": float(group_df["score_diff"].mean()),
+            "median_margin_during_scoring_events": float(group_df["score_diff"].median()),
+            "avg_abs_margin_during_scoring_events": float(group_df["abs_score_diff"].mean()),
+            "median_abs_margin_during_scoring_events": float(group_df["abs_score_diff"].median()),
+            "competitive_points": competitive_points,
+            "competitive_scoring_share": _safe_scalar_ratio(competitive_points, interval_points),
+            "points_from_2s": points_from_2s,
+            "points_from_3s": points_from_3s,
+            "points_from_fts": points_from_fts,
+            "share_points_from_2s": _safe_scalar_ratio(points_from_2s, interval_points),
+            "share_points_from_3s": _safe_scalar_ratio(points_from_3s, interval_points),
+            "share_points_from_fts": _safe_scalar_ratio(points_from_fts, interval_points),
+        }
+    )
+
+
+def _best_burst_window(player_df: pd.DataFrame, window_seconds: int) -> dict[str, Any]:
+    times = player_df["elapsed_seconds_in_game"].astype(float).tolist()
+    points = player_df["point_value"].astype(int).tolist()
+    left = 0
+    running_points = 0
+    best_left = 0
+    best_right = 0
+    best_points = -1
+
+    for right, point_value in enumerate(points):
+        running_points += point_value
+        while times[right] - times[left] > window_seconds:
+            running_points -= points[left]
+            left += 1
+        current_points = running_points
+        current_span = times[right] - times[left]
+        best_span = times[best_right] - times[best_left]
+        if (
+            current_points > best_points
+            or (
+                current_points == best_points
+                and (
+                    current_span < best_span
+                    or (
+                        current_span == best_span
+                        and times[left] < times[best_left]
+                    )
+                )
+            )
+        ):
+            best_points = current_points
+            best_left = left
+            best_right = right
+
+    interval_df = player_df.iloc[best_left : best_right + 1].copy()
+    start_row = interval_df.iloc[0]
+    end_row = interval_df.iloc[-1]
+    points_from_2s = int(interval_df.loc[interval_df["scoring_type"].eq("2PT"), "point_value"].sum())
+    points_from_3s = int(interval_df.loc[interval_df["scoring_type"].eq("3PT"), "point_value"].sum())
+    points_from_fts = int(interval_df.loc[interval_df["scoring_type"].eq("FT"), "point_value"].sum())
+    competitive_points = int(interval_df.loc[interval_df["is_competitive_moment"], "point_value"].sum())
+    trailing_points = int(interval_df.loc[interval_df["score_diff"] < 0, "point_value"].sum())
+    return {
+        "points_in_window": int(interval_df["point_value"].sum()),
+        "num_scoring_events": int(len(interval_df)),
+        "window_start_seconds_in_game": float(start_row["elapsed_seconds_in_game"]),
+        "window_end_seconds_in_game": float(
+            min(
+                float(start_row["elapsed_seconds_in_game"]) + float(window_seconds),
+                float(player_df["total_game_seconds"].iloc[0]),
+            )
+        ),
+        "start_period": int(start_row["period"]),
+        "start_clock": str(start_row["clock"]),
+        "end_period": int(end_row["period"]),
+        "end_clock": str(end_row["clock"]),
+        "includes_overtime": bool(interval_df["is_overtime"].any()),
+        "window_points_per_minute": _safe_scalar_ratio(interval_df["point_value"].sum(), window_seconds / 60.0),
+        "avg_score_diff_in_window": float(interval_df["score_diff"].mean()),
+        "median_score_diff_in_window": float(interval_df["score_diff"].median()),
+        "avg_abs_score_diff_in_window": float(interval_df["abs_score_diff"].mean()),
+        "competitive_points_in_window": competitive_points,
+        "competitive_scoring_share": _safe_scalar_ratio(competitive_points, interval_df["point_value"].sum()),
+        "trailing_points_in_window": trailing_points,
+        "points_from_2s": points_from_2s,
+        "points_from_3s": points_from_3s,
+        "points_from_fts": points_from_fts,
+        "share_points_from_2s": _safe_scalar_ratio(points_from_2s, interval_df["point_value"].sum()),
+        "share_points_from_3s": _safe_scalar_ratio(points_from_3s, interval_df["point_value"].sum()),
+        "share_points_from_fts": _safe_scalar_ratio(points_from_fts, interval_df["point_value"].sum()),
+    }
+
+
+def _prepare_boxscore_metrics(boxscore_df: pd.DataFrame) -> pd.DataFrame:
+    metrics = boxscore_df.copy()
+    required = ["game_id", "team_id", "player_id"]
+    _require_columns(metrics, required)
+    metrics["minutes_played"] = pd.to_numeric(metrics.get("minutes_played"), errors="coerce")
+    metrics["field_goals_made"] = pd.to_numeric(metrics.get("field_goals_made"), errors="coerce")
+    metrics["field_goals_attempted"] = pd.to_numeric(metrics.get("field_goals_attempted"), errors="coerce")
+    metrics["three_pointers_made"] = pd.to_numeric(metrics.get("three_pointers_made"), errors="coerce")
+    metrics["free_throws_attempted"] = pd.to_numeric(metrics.get("free_throws_attempted"), errors="coerce")
+    metrics["official_points"] = pd.to_numeric(metrics.get("official_points"), errors="coerce")
+
+    metrics["ts_pct"] = pd.NA
+    ts_denom = 2 * (metrics["field_goals_attempted"] + 0.44 * metrics["free_throws_attempted"])
+    valid_ts = ts_denom > 0
+    metrics.loc[valid_ts, "ts_pct"] = metrics.loc[valid_ts, "official_points"] / ts_denom.loc[valid_ts]
+
+    metrics["efg_pct"] = pd.NA
+    valid_efg = metrics["field_goals_attempted"] > 0
+    metrics.loc[valid_efg, "efg_pct"] = (
+        metrics.loc[valid_efg, "field_goals_made"]
+        + 0.5 * metrics.loc[valid_efg, "three_pointers_made"]
+    ) / metrics.loc[valid_efg, "field_goals_attempted"]
+    return metrics[["game_id", "team_id", "player_id", "minutes_played", "ts_pct", "efg_pct"]]
+
+
+def _interval_duration_minutes(group_df: pd.DataFrame, entity: str) -> float:
+    first_row = group_df.iloc[0]
+    if entity == "quarter":
+        return float(first_row["period_duration_seconds"]) / 60.0
+    if entity == "half":
+        return 24.0
+    raise ValueError(f"Unsupported entity for interval summary: {entity}")
+
+
+def _period_duration_seconds(period: int) -> int:
+    return 720 if int(period) <= 4 else 300
+
+
+def _total_game_seconds_from_period(max_period: int) -> int:
+    max_period_int = int(max_period)
+    if max_period_int <= 4:
+        return 2880
+    return 2880 + ((max_period_int - 4) * 300)
+
+
+def _period_label(period: int) -> str:
+    period_int = int(period)
+    if period_int <= 4:
+        return f"Q{period_int}"
+    return f"OT{period_int - 4}"
+
+
+def _burst_window_label(window_seconds: int) -> str:
+    if window_seconds < 60:
+        return f"{window_seconds}s"
+    if window_seconds % 60 == 0:
+        minutes = window_seconds // 60
+        return f"{minutes}m"
+    return f"{window_seconds / 60.0:.1f}m"
 
 
 def _ensure_metadata_columns(
@@ -453,6 +1039,17 @@ def _sort_raw_playbyplay(raw_df: pd.DataFrame) -> pd.DataFrame:
     return df.sort_values(sort_columns).drop(columns="_api_order").reset_index(drop=True)
 
 
+def _with_point_component_columns(df: pd.DataFrame) -> pd.DataFrame:
+    enriched = df.copy()
+    point_values = pd.to_numeric(enriched["point_value"], errors="coerce").fillna(0).astype(int)
+    enriched["points_2pt"] = point_values.where(enriched["scoring_type"].eq("2PT"), 0)
+    enriched["points_3pt"] = point_values.where(enriched["scoring_type"].eq("3PT"), 0)
+    enriched["points_ft"] = point_values.where(enriched["scoring_type"].eq("FT"), 0)
+    enriched["competitive_point_value"] = point_values.where(enriched["is_competitive_moment"], 0)
+    enriched["trailing_point_value"] = point_values.where(enriched["score_diff"] < 0, 0)
+    return enriched
+
+
 def _scoring_type_label(row: pd.Series) -> str:
     if int(row["point_value"]) == 1 and not bool(row["is_field_goal"]):
         return "FT"
@@ -473,3 +1070,30 @@ def _competitiveness_bucket(abs_margin: int) -> str:
     if abs_margin <= 19:
         return "comfortable"
     return "blowout"
+
+
+def _margin_bucket(score_diff: int) -> str:
+    if abs(int(score_diff)) <= 3:
+        return "within_3"
+    if int(score_diff) <= -10:
+        return "trailing_10_plus"
+    if int(score_diff) < 0:
+        return "trailing_1_9"
+    if int(score_diff) >= 10:
+        return "leading_10_plus"
+    return "leading_1_9"
+
+
+def _safe_ratio(numerator: pd.Series, denominator: pd.Series) -> pd.Series:
+    numerator_values = pd.to_numeric(numerator, errors="coerce")
+    denominator_values = pd.to_numeric(denominator, errors="coerce")
+    result = pd.Series(pd.NA, index=numerator.index, dtype="Float64")
+    valid = denominator_values.notna() & denominator_values.ne(0)
+    result.loc[valid] = numerator_values.loc[valid] / denominator_values.loc[valid]
+    return result
+
+
+def _safe_scalar_ratio(numerator: float | int, denominator: float | int) -> float | None:
+    if denominator in {0, 0.0} or pd.isna(denominator):
+        return None
+    return float(numerator) / float(denominator)

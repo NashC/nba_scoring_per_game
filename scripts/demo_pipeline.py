@@ -11,12 +11,16 @@ sys.path.insert(0, str(ROOT / "src"))
 from nba_scoring_per_game import (  # noqa: E402
     add_game_time_columns,
     build_player_scoring_timeline,
+    fetch_boxscore_player_totals,
     fetch_game_manifest,
     extract_scoring_events,
     fetch_playbyplay,
     inspect_playbyplay,
     process_game,
+    summarize_player_bursts,
     summarize_player_games,
+    summarize_player_halves,
+    summarize_player_quarters,
     validate_game,
 )
 
@@ -92,8 +96,14 @@ def main() -> None:
         "clock",
         "point_value",
         "elapsed_minutes_in_game",
+        "game_time_normalized",
         "player_game_cumulative_points",
+        "cumulative_2pt_points",
+        "cumulative_3pt_points",
+        "cumulative_ft_points",
         "player_team_margin_after",
+        "margin_bucket",
+        "projected_48",
         "scoring_type",
         "competitiveness_bucket",
     ]
@@ -108,8 +118,34 @@ def main() -> None:
         game_date="2024-03-29",
     )
     combined_scoring = pd.concat([inspection_scoring, kobe_scoring, ot_scoring], ignore_index=True)
-    summary = summarize_player_games(combined_scoring)
-    print(summary.head(15).to_string(index=False))
+    combined_boxscore = pd.concat(
+        [
+            fetch_boxscore_player_totals(INSPECTION_GAME_ID),
+            fetch_boxscore_player_totals(KOBE_81_GAME_ID),
+            fetch_boxscore_player_totals(OT_VALIDATION_GAME_ID),
+        ],
+        ignore_index=True,
+    )
+    summary = summarize_player_games(combined_scoring, boxscore_df=combined_boxscore)
+    quarter_summary = summarize_player_quarters(combined_scoring)
+    half_summary = summarize_player_halves(combined_scoring)
+    burst_summary = summarize_player_bursts(combined_scoring)
+    print("Player-game summary:")
+    print(summary.head(10).to_string(index=False))
+    print()
+    print("Top quarters:")
+    print(quarter_summary.sort_values("quarter_points", ascending=False).head(10).to_string(index=False))
+    print()
+    print("Top halves:")
+    print(half_summary.sort_values("half_points", ascending=False).head(10).to_string(index=False))
+    print()
+    print("Top 3-minute bursts:")
+    print(
+        burst_summary.loc[burst_summary["burst_window_seconds"].eq(180)]
+        .sort_values("points_in_window", ascending=False)
+        .head(10)
+        .to_string(index=False)
+    )
 
     print_section("F. Validation Notes")
     for game_id in [INSPECTION_GAME_ID, KOBE_81_GAME_ID, OT_VALIDATION_GAME_ID]:
@@ -144,6 +180,9 @@ def main() -> None:
         "status": artifact.status,
         "validation_passed": artifact.validation_report.get("validation_passed"),
         "num_scoring_events": len(artifact.raw_scoring_events),
+        "num_quarter_rows": len(artifact.player_quarter_summaries),
+        "num_half_rows": len(artifact.player_half_summaries),
+        "num_burst_rows": len(artifact.player_burst_summaries),
     }]).to_string(index=False))
 
 

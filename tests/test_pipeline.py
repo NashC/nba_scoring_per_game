@@ -136,6 +136,14 @@ def make_boxscore_totals() -> pd.DataFrame:
                 "player_id": 100,
                 "player_name_boxscore": "Home Scorer",
                 "official_points": 3,
+                "minutes_played_raw": "PT30M00.00S",
+                "minutes_played": 30.0,
+                "field_goals_made": 1,
+                "field_goals_attempted": 1,
+                "three_pointers_made": 0,
+                "three_pointers_attempted": 0,
+                "free_throws_made": 1,
+                "free_throws_attempted": 1,
             },
             {
                 "game_id": "game-123",
@@ -144,6 +152,14 @@ def make_boxscore_totals() -> pd.DataFrame:
                 "player_id": 200,
                 "player_name_boxscore": "Away Scorer",
                 "official_points": 5,
+                "minutes_played_raw": "PT32M00.00S",
+                "minutes_played": 32.0,
+                "field_goals_made": 2,
+                "field_goals_attempted": 2,
+                "three_pointers_made": 1,
+                "three_pointers_attempted": 1,
+                "free_throws_made": 0,
+                "free_throws_attempted": 0,
             },
         ]
     )
@@ -166,9 +182,17 @@ class PipelineTests(unittest.TestCase):
             raw_scoring = load_dataset(base / "raw_scoring_events")
             timelines = load_dataset(base / "player_scoring_timelines")
             summaries = load_dataset(base / "player_game_summaries")
+            quarter_summaries = load_dataset(base / "player_quarter_summaries")
+            half_summaries = load_dataset(base / "player_half_summaries")
+            burst_summaries = load_dataset(base / "player_burst_summaries")
             self.assertEqual(len(raw_scoring), 4)
             self.assertEqual(len(timelines), 4)
             self.assertEqual(len(summaries), 2)
+            self.assertEqual(len(quarter_summaries), 4)
+            self.assertEqual(len(half_summaries), 3)
+            self.assertEqual(len(burst_summaries), 10)
+            self.assertIn("points_from_3s", summaries.columns)
+            self.assertIn("margin_bucket", timelines.columns)
             self.assertTrue((base / "validation_reports").exists())
 
     def test_build_dataset_skips_existing_after_success(self) -> None:
@@ -226,6 +250,10 @@ class PipelineTests(unittest.TestCase):
                     "pct_scoring_events_within_10": 0.9,
                     "max_lead_during_scoring_events": 10,
                     "max_deficit_during_scoring_events": 3,
+                    "competitive_points": 70,
+                    "competitive_scoring_share": 1.0,
+                    "went_to_overtime": False,
+                    "points_per_minute": 1.8,
                 },
                 {
                     "season": "2023-24",
@@ -249,6 +277,10 @@ class PipelineTests(unittest.TestCase):
                     "pct_scoring_events_within_10": 0.7,
                     "max_lead_during_scoring_events": 2,
                     "max_deficit_during_scoring_events": 12,
+                    "competitive_points": 20,
+                    "competitive_scoring_share": 0.333333,
+                    "went_to_overtime": True,
+                    "points_per_minute": 1.5,
                 },
             ]
         )
@@ -260,6 +292,43 @@ class PipelineTests(unittest.TestCase):
             min_pct_within_10=0.8,
             sort_by="avg_abs_margin_during_scoring_events",
             ascending=True,
+        )
+        self.assertEqual(result["game_id"].tolist(), ["g1"])
+
+    def test_query_player_games_supports_burst_entity_mode(self) -> None:
+        burst_df = pd.DataFrame(
+            [
+                {
+                    "game_id": "g1",
+                    "player_id": 1,
+                    "burst_window_seconds": 180,
+                    "points_in_window": 15,
+                    "competitive_scoring_share": 1.0,
+                    "includes_overtime": False,
+                    "window_points_per_minute": 5.0,
+                    "avg_abs_score_diff_in_window": 4.0,
+                },
+                {
+                    "game_id": "g2",
+                    "player_id": 2,
+                    "burst_window_seconds": 180,
+                    "points_in_window": 12,
+                    "competitive_scoring_share": 0.5,
+                    "includes_overtime": True,
+                    "window_points_per_minute": 4.0,
+                    "avg_abs_score_diff_in_window": 8.0,
+                },
+            ]
+        )
+
+        result = query_player_games(
+            burst_df,
+            entity_mode="burst",
+            burst_window=180,
+            min_competitive_share=0.75,
+            include_ot=False,
+            max_avg_abs_margin=5.0,
+            ranking_metric="points_per_minute",
         )
         self.assertEqual(result["game_id"].tolist(), ["g1"])
 

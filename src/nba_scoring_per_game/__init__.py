@@ -14,9 +14,12 @@ from .transforms import (
     add_game_time_columns,
     add_score_context_columns,
     build_player_scoring_timeline,
+    summarize_player_bursts,
     extract_scoring_events,
     inspect_playbyplay,
     summarize_player_games,
+    summarize_player_halves,
+    summarize_player_quarters,
 )
 from .validation import validate_game
 
@@ -34,6 +37,9 @@ __all__ = [
     "load_dataset",
     "process_game",
     "query_player_games",
+    "summarize_player_bursts",
     "summarize_player_games",
+    "summarize_player_halves",
+    "summarize_player_quarters",
     "validate_game",
 ]

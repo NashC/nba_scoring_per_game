@@ -1,7 +1,27 @@
 from __future__ import annotations
 
+import re
+
 from nba_api.stats.endpoints import boxscoretraditionalv3, leaguegamelog, playbyplayv3
 import pandas as pd
+
+BOX_SCORE_COLUMNS = [
+    "game_id",
+    "team_id",
+    "team_tricode",
+    "player_id",
+    "player_name_boxscore",
+    "official_points",
+    "minutes_played_raw",
+    "minutes_played",
+    "field_goals_made",
+    "field_goals_attempted",
+    "three_pointers_made",
+    "three_pointers_attempted",
+    "free_throws_made",
+    "free_throws_attempted",
+]
+ISO_DURATION_PATTERN = re.compile(r"^PT(?:(?P<minutes>\d+)M)?(?:(?P<seconds>\d+(?:\.\d+)?)S)?$")
 
 
 def fetch_playbyplay(game_id: str) -> pd.DataFrame:
@@ -13,11 +33,11 @@ def fetch_playbyplay(game_id: str) -> pd.DataFrame:
 
 
 def fetch_boxscore_player_totals(game_id: str) -> pd.DataFrame:
-    """Fetch official player point totals for one game."""
+    """Fetch official player box score totals for one game."""
     players = boxscoretraditionalv3.BoxScoreTraditionalV3(game_id=game_id).get_data_frames()[0].copy()
     if players.empty:
         raise ValueError(f"No box score rows returned for game_id={game_id}")
-    return players.rename(
+    renamed = players.rename(
         columns={
             "gameId": "game_id",
             "teamId": "team_id",
@@ -25,10 +45,38 @@ def fetch_boxscore_player_totals(game_id: str) -> pd.DataFrame:
             "personId": "player_id",
             "points": "official_points",
             "nameI": "player_name_boxscore",
+            "minutes": "minutes_played_raw",
+            "fieldGoalsMade": "field_goals_made",
+            "fieldGoalsAttempted": "field_goals_attempted",
+            "threePointersMade": "three_pointers_made",
+            "threePointersAttempted": "three_pointers_attempted",
+            "freeThrowsMade": "free_throws_made",
+            "freeThrowsAttempted": "free_throws_attempted",
         }
-    )[
-        ["game_id", "team_id", "team_tricode", "player_id", "player_name_boxscore", "official_points"]
-    ]
+    ).copy()
+    renamed["minutes_played"] = renamed.get("minutes_played_raw", pd.Series(index=renamed.index)).map(
+        _parse_minutes_to_float
+    )
+    for column in [
+        "team_id",
+        "player_id",
+        "official_points",
+        "field_goals_made",
+        "field_goals_attempted",
+        "three_pointers_made",
+        "three_pointers_attempted",
+        "free_throws_made",
+        "free_throws_attempted",
+        "minutes_played",
+    ]:
+        if column in renamed.columns:
+            renamed[column] = pd.to_numeric(renamed[column], errors="coerce")
+        else:
+            renamed[column] = pd.NA
+    for column in BOX_SCORE_COLUMNS:
+        if column not in renamed.columns:
+            renamed[column] = pd.NA
+    return renamed[BOX_SCORE_COLUMNS].copy()
 
 
 def fetch_game_manifest(season: str, season_type: str = "Regular Season") -> pd.DataFrame:
@@ -79,3 +127,32 @@ def fetch_game_manifest(season: str, season_type: str = "Regular Season") -> pd.
         )
 
     return manifest
+
+
+def _parse_minutes_to_float(value: object) -> float | None:
+    if value is None or pd.isna(value):
+        return None
+
+    raw = str(value).strip()
+    if not raw:
+        return None
+
+    iso_match = ISO_DURATION_PATTERN.fullmatch(raw)
+    if iso_match:
+        minutes = int(iso_match.group("minutes") or 0)
+        seconds = float(iso_match.group("seconds") or 0.0)
+        return minutes + (seconds / 60.0)
+
+    if ":" in raw:
+        minute_part, second_part = raw.split(":", maxsplit=1)
+        try:
+            minutes = int(minute_part)
+            seconds = float(second_part)
+        except ValueError:
+            return None
+        return minutes + (seconds / 60.0)
+
+    try:
+        return float(raw)
+    except ValueError:
+        return None

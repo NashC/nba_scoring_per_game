@@ -11,12 +11,18 @@ import pandas as pd
 
 from .source import fetch_boxscore_player_totals, fetch_playbyplay
 from .transforms import (
+    BURST_SUMMARY_COLUMNS,
+    HALF_SUMMARY_COLUMNS,
+    QUARTER_SUMMARY_COLUMNS,
     RAW_SCORING_COLUMNS,
     SUMMARY_COLUMNS,
     TIMELINE_COLUMNS,
     build_player_scoring_timeline,
     extract_scoring_events,
+    summarize_player_bursts,
     summarize_player_games,
+    summarize_player_halves,
+    summarize_player_quarters,
 )
 from .validation import validate_game
 
@@ -25,6 +31,9 @@ CURATED_DATASET_NAMES = (
     "raw_scoring_events",
     "player_scoring_timelines",
     "player_game_summaries",
+    "player_quarter_summaries",
+    "player_half_summaries",
+    "player_burst_summaries",
 )
 
 
@@ -35,6 +44,9 @@ class GameArtifacts:
     raw_scoring_events: pd.DataFrame = field(default_factory=pd.DataFrame)
     player_scoring_timelines: pd.DataFrame = field(default_factory=pd.DataFrame)
     player_game_summaries: pd.DataFrame = field(default_factory=pd.DataFrame)
+    player_quarter_summaries: pd.DataFrame = field(default_factory=pd.DataFrame)
+    player_half_summaries: pd.DataFrame = field(default_factory=pd.DataFrame)
+    player_burst_summaries: pd.DataFrame = field(default_factory=pd.DataFrame)
     validation_report: dict[str, Any] = field(default_factory=dict)
     status: str = "success"
     skipped_existing: bool = False
@@ -72,6 +84,9 @@ def process_game(
         artifact.raw_scoring_events = _read_parquet_if_exists(output_paths["raw_scoring_events"])
         artifact.player_scoring_timelines = _read_parquet_if_exists(output_paths["player_scoring_timelines"])
         artifact.player_game_summaries = _read_parquet_if_exists(output_paths["player_game_summaries"])
+        artifact.player_quarter_summaries = _read_parquet_if_exists(output_paths["player_quarter_summaries"])
+        artifact.player_half_summaries = _read_parquet_if_exists(output_paths["player_half_summaries"])
+        artifact.player_burst_summaries = _read_parquet_if_exists(output_paths["player_burst_summaries"])
         artifact.validation_report = _read_validation_report(output_paths["validation_report"], row)
         artifact.written_paths = {key: str(path) for key, path in output_paths.items() if path.exists()}
         return artifact
@@ -113,7 +128,10 @@ def process_game(
             game_date=row["game_date"],
         )
         player_scoring_timelines = build_player_scoring_timeline(raw_scoring_events)
-        player_game_summaries = summarize_player_games(raw_scoring_events)
+        player_game_summaries = summarize_player_games(raw_scoring_events, boxscore_df=boxscore_df)
+        player_quarter_summaries = summarize_player_quarters(raw_scoring_events)
+        player_half_summaries = summarize_player_halves(raw_scoring_events)
+        player_burst_summaries = summarize_player_bursts(raw_scoring_events)
     except Exception as exc:
         artifact.status = "transform_error"
         artifact.error_type = type(exc).__name__
@@ -123,6 +141,9 @@ def process_game(
     artifact.raw_scoring_events = raw_scoring_events
     artifact.player_scoring_timelines = player_scoring_timelines
     artifact.player_game_summaries = player_game_summaries
+    artifact.player_quarter_summaries = player_quarter_summaries
+    artifact.player_half_summaries = player_half_summaries
+    artifact.player_burst_summaries = player_burst_summaries
 
     try:
         validation_report = validate_game(
@@ -157,6 +178,9 @@ def process_game(
         _write_parquet(raw_scoring_events[RAW_SCORING_COLUMNS], output_paths["raw_scoring_events"])
         _write_parquet(player_scoring_timelines[TIMELINE_COLUMNS], output_paths["player_scoring_timelines"])
         _write_parquet(player_game_summaries[SUMMARY_COLUMNS], output_paths["player_game_summaries"])
+        _write_parquet(player_quarter_summaries[QUARTER_SUMMARY_COLUMNS], output_paths["player_quarter_summaries"])
+        _write_parquet(player_half_summaries[HALF_SUMMARY_COLUMNS], output_paths["player_half_summaries"])
+        _write_parquet(player_burst_summaries[BURST_SUMMARY_COLUMNS], output_paths["player_burst_summaries"])
     except Exception as exc:
         artifact.status = "write_error"
         artifact.error_type = type(exc).__name__
@@ -233,6 +257,7 @@ def build_dataset(
 def query_player_games(
     summary_df: pd.DataFrame,
     *,
+    entity_mode: str = "game",
     min_points: int | None = None,
     max_points: int | None = None,
     max_avg_abs_margin: float | None = None,
@@ -240,34 +265,65 @@ def query_player_games(
     min_pct_within_3: float | None = None,
     min_pct_within_5: float | None = None,
     min_pct_within_10: float | None = None,
+    competitive_only: bool = False,
+    min_competitive_share: float | None = None,
+    include_ot: bool = True,
+    burst_window: int | None = None,
+    ranking_metric: str | None = None,
     sort_by: str = "final_points",
     ascending: bool = False,
 ) -> pd.DataFrame:
-    """Filter and rank player-game summaries."""
+    """Filter and rank summary tables across game, quarter, half, or burst modes."""
     df = summary_df.copy()
-    if min_points is not None:
-        df = df.loc[df["final_points"] >= min_points]
-    if max_points is not None:
-        df = df.loc[df["final_points"] <= max_points]
-    if max_avg_abs_margin is not None:
-        df = df.loc[df["avg_abs_margin_during_scoring_events"] <= max_avg_abs_margin]
-    if max_median_abs_margin is not None:
-        df = df.loc[df["median_abs_margin_during_scoring_events"] <= max_median_abs_margin]
-    if min_pct_within_3 is not None:
-        df = df.loc[df["pct_scoring_events_within_3"] >= min_pct_within_3]
-    if min_pct_within_5 is not None:
-        df = df.loc[df["pct_scoring_events_within_5"] >= min_pct_within_5]
-    if min_pct_within_10 is not None:
-        df = df.loc[df["pct_scoring_events_within_10"] >= min_pct_within_10]
+    entity_mode_normalized = str(entity_mode).strip().lower()
+    point_column = _entity_point_column(entity_mode_normalized, df)
+    effective_sort_by = ranking_metric or sort_by
 
-    valid_sort_columns = {
-        "final_points",
-        "avg_abs_margin_during_scoring_events",
-        "median_abs_margin_during_scoring_events",
-    }
-    if sort_by not in valid_sort_columns:
-        raise ValueError(f"sort_by must be one of {sorted(valid_sort_columns)}")
-    return df.sort_values([sort_by, "game_id", "player_id"], ascending=[ascending, True, True]).reset_index(drop=True)
+    if burst_window is not None and "burst_window_seconds" in df.columns:
+        df = df.loc[df["burst_window_seconds"] == int(burst_window)]
+    if min_points is not None and point_column in df.columns:
+        df = df.loc[df[point_column] >= min_points]
+    if max_points is not None and point_column in df.columns:
+        df = df.loc[df[point_column] <= max_points]
+    avg_abs_margin_column = _resolve_metric_column(
+        ["avg_abs_margin_during_scoring_events", "avg_abs_score_diff_in_window"],
+        df,
+    )
+    median_abs_margin_column = _resolve_metric_column(
+        ["median_abs_margin_during_scoring_events", "median_abs_score_diff_in_window"],
+        df,
+    )
+    if max_avg_abs_margin is not None and avg_abs_margin_column is not None:
+        df = df.loc[df[avg_abs_margin_column] <= max_avg_abs_margin]
+    if max_median_abs_margin is not None and median_abs_margin_column is not None:
+        df = df.loc[df[median_abs_margin_column] <= max_median_abs_margin]
+    if min_pct_within_3 is not None and "pct_scoring_events_within_3" in df.columns:
+        df = df.loc[df["pct_scoring_events_within_3"] >= min_pct_within_3]
+    if min_pct_within_5 is not None and "pct_scoring_events_within_5" in df.columns:
+        df = df.loc[df["pct_scoring_events_within_5"] >= min_pct_within_5]
+    if min_pct_within_10 is not None and "pct_scoring_events_within_10" in df.columns:
+        df = df.loc[df["pct_scoring_events_within_10"] >= min_pct_within_10]
+    if competitive_only and "competitive_scoring_share" in df.columns:
+        df = df.loc[df["competitive_scoring_share"].astype(float) >= 1.0]
+    if min_competitive_share is not None and "competitive_scoring_share" in df.columns:
+        df = df.loc[df["competitive_scoring_share"].astype(float) >= float(min_competitive_share)]
+    if not include_ot:
+        if "went_to_overtime" in df.columns:
+            df = df.loc[~df["went_to_overtime"].astype(bool)]
+        elif "is_overtime_quarter" in df.columns:
+            df = df.loc[~df["is_overtime_quarter"].astype(bool)]
+        elif "includes_overtime" in df.columns:
+            df = df.loc[~df["includes_overtime"].astype(bool)]
+
+    effective_sort_by = _normalize_ranking_metric(effective_sort_by, entity_mode_normalized, point_column)
+    if effective_sort_by not in df.columns:
+        raise ValueError(f"ranking metric {effective_sort_by!r} is not available for entity_mode={entity_mode_normalized}")
+    sort_columns = [effective_sort_by]
+    for column in ["game_id", "player_id", "quarter_number", "half_index", "burst_window_seconds"]:
+        if column in df.columns:
+            sort_columns.append(column)
+    ascending_flags = [ascending] + [True] * (len(sort_columns) - 1)
+    return df.sort_values(sort_columns, ascending=ascending_flags).reset_index(drop=True)
 
 
 def load_dataset(dataset_dir: str | Path) -> pd.DataFrame:
@@ -303,6 +359,9 @@ def _build_output_paths(out_dir: Path, row: Mapping[str, Any], run_date: str) ->
         "raw_scoring_events": partition_dir("raw_scoring_events") / f"part-{game_id}.parquet",
         "player_scoring_timelines": partition_dir("player_scoring_timelines") / f"part-{game_id}.parquet",
         "player_game_summaries": partition_dir("player_game_summaries") / f"part-{game_id}.parquet",
+        "player_quarter_summaries": partition_dir("player_quarter_summaries") / f"part-{game_id}.parquet",
+        "player_half_summaries": partition_dir("player_half_summaries") / f"part-{game_id}.parquet",
+        "player_burst_summaries": partition_dir("player_burst_summaries") / f"part-{game_id}.parquet",
         "validation_report": out_dir / "validation_reports" / f"run_date={run_date}" / f"part-{game_id}.parquet",
     }
 
@@ -371,3 +430,55 @@ def _retry_call(func: Any, *args: Any, max_attempts: int = 3, base_delay_seconds
             time.sleep(base_delay_seconds * (2 ** (attempt - 1)))
     assert last_error is not None
     raise last_error
+
+
+def _entity_point_column(entity_mode: str, df: pd.DataFrame) -> str:
+    defaults = {
+        "game": "final_points",
+        "quarter": "quarter_points",
+        "half": "half_points",
+        "burst": "points_in_window",
+    }
+    preferred = defaults.get(entity_mode, "final_points")
+    if preferred in df.columns:
+        return preferred
+    if "final_points" in df.columns:
+        return "final_points"
+    for candidate in ["quarter_points", "half_points", "points_in_window"]:
+        if candidate in df.columns:
+            return candidate
+    raise ValueError("Could not determine the primary point column for the supplied summary dataset.")
+
+
+def _normalize_ranking_metric(metric: str, entity_mode: str, point_column: str) -> str:
+    if metric in {"avg_abs_margin_during_scoring_events", "avg_abs_score_diff_in_window"}:
+        return "avg_abs_score_diff_in_window" if entity_mode == "burst" else "avg_abs_margin_during_scoring_events"
+    if metric in {"median_abs_margin_during_scoring_events", "median_abs_score_diff_in_window"}:
+        return "median_abs_score_diff_in_window" if entity_mode == "burst" else "median_abs_margin_during_scoring_events"
+    aliases = {
+        "total_points": point_column,
+        "best_3_min_points": "best_3_min_points",
+        "best_5_min_points": "best_5_min_points",
+        "best_10_min_points": "best_10_min_points",
+        "best_quarter_points": "best_quarter_points",
+        "best_half_points": "best_half_points",
+        "peak_projected_48": "peak_projected_48",
+        "points_per_minute": "window_points_per_minute" if entity_mode == "burst" else "points_per_minute",
+        "offensive_share": "offensive_share",
+        "competitive_points": "competitive_points_in_window" if entity_mode == "burst" else "competitive_points",
+        "competitive_scoring_share": "competitive_scoring_share",
+        "trailing_points": "trailing_points_in_window" if entity_mode == "burst" else "trailing_points",
+        "trailing_scoring_rate": "trailing_scoring_rate",
+        "ts_pct": "ts_pct",
+        "efg_pct": "efg_pct",
+    }
+    if metric == "final_points" and entity_mode != "game":
+        return point_column
+    return aliases.get(metric, metric)
+
+
+def _resolve_metric_column(candidates: list[str], df: pd.DataFrame) -> str | None:
+    for candidate in candidates:
+        if candidate in df.columns:
+            return candidate
+    return None

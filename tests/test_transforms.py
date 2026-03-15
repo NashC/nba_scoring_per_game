@@ -10,7 +10,10 @@ from nba_scoring_per_game.transforms import (
     build_player_scoring_timeline,
     extract_scoring_events,
     parse_clock_to_seconds_remaining,
+    summarize_player_bursts,
     summarize_player_games,
+    summarize_player_halves,
+    summarize_player_quarters,
 )
 
 
@@ -158,24 +161,60 @@ class TransformTests(unittest.TestCase):
             ]
         )
 
+        boxscore = pd.DataFrame(
+            [
+                {
+                    "game_id": "game-1",
+                    "team_id": 1,
+                    "player_id": 100,
+                    "minutes_played": 40.0,
+                    "official_points": 5,
+                    "field_goals_made": 2,
+                    "field_goals_attempted": 3,
+                    "three_pointers_made": 0,
+                    "free_throws_attempted": 1,
+                },
+                {
+                    "game_id": "game-1",
+                    "team_id": 2,
+                    "player_id": 200,
+                    "minutes_played": 42.0,
+                    "official_points": 7,
+                    "field_goals_made": 3,
+                    "field_goals_attempted": 4,
+                    "three_pointers_made": 1,
+                    "free_throws_attempted": 0,
+                },
+            ]
+        )
+
         timeline = build_player_scoring_timeline(scoring_events, player_id=100, game_id="game-1")
         self.assertEqual(timeline["player_game_cumulative_points"].tolist(), [2, 3, 5])
         self.assertEqual(timeline["player_game_final_points"].tolist(), [5, 5, 5])
         self.assertEqual(timeline["player_team_margin_after"].tolist(), [2, 0, 0])
         self.assertEqual(timeline["scoring_type"].tolist(), ["2PT", "FT", "2PT"])
         self.assertEqual(timeline["competitiveness_bucket"].tolist(), ["very_close"] * 3)
+        self.assertEqual(timeline["cumulative_2pt_points"].tolist(), [2, 2, 4])
+        self.assertEqual(timeline["cumulative_ft_points"].tolist(), [0, 1, 1])
+        self.assertEqual(timeline["game_time_normalized"].round(6).tolist(), [0.009434, 0.264151, 0.924528])
+        self.assertEqual(timeline["margin_bucket"].tolist(), ["within_3", "within_3", "within_3"])
+        self.assertTrue(timeline["projected_48"].isna().iloc[0])
+        self.assertAlmostEqual(float(timeline["projected_48"].iloc[1]), 10.285714, places=6)
 
         with_time = add_game_time_columns(scoring_events)
         self.assertEqual(
             with_time["elapsed_seconds_in_game"].round(1).tolist(),
             [30.0, 60.0, 840.0, 2850.0, 2940.0, 3170.0],
         )
+        self.assertEqual(with_time["total_game_minutes"].tolist(), [53.0] * 6)
+        self.assertEqual(with_time["half_label"].tolist(), ["1H", "1H", "1H", "2H", "OT", "OT"])
 
         with_context = add_score_context_columns(scoring_events)
         self.assertEqual(with_context["player_team_margin_after"].tolist(), [2, 1, 0, 2, 0, 2])
         self.assertEqual(with_context["abs_margin_after"].tolist(), [2, 1, 0, 2, 0, 2])
+        self.assertEqual(with_context["margin_bucket"].tolist(), ["within_3"] * 6)
 
-        summary = summarize_player_games(scoring_events)
+        summary = summarize_player_games(scoring_events, boxscore_df=boxscore)
         home_row = summary.loc[summary["player_id"].eq(100)].iloc[0]
         away_row = summary.loc[summary["player_id"].eq(200)].iloc[0]
         self.assertEqual(int(home_row["final_points"]), 5)
@@ -185,9 +224,41 @@ class TransformTests(unittest.TestCase):
         self.assertEqual(float(home_row["pct_scoring_events_within_3"]), 1.0)
         self.assertEqual(int(home_row["max_lead_during_scoring_events"]), 2)
         self.assertEqual(int(home_row["max_deficit_during_scoring_events"]), 0)
+        self.assertEqual(int(home_row["points_from_2s"]), 4)
+        self.assertEqual(int(home_row["points_from_fts"]), 1)
+        self.assertAlmostEqual(float(home_row["offensive_share"]), 1.0, places=6)
+        self.assertAlmostEqual(float(home_row["points_per_minute"]), 0.125, places=6)
+        self.assertAlmostEqual(float(home_row["ts_pct"]), 5 / (2 * (3 + 0.44)), places=6)
+        self.assertAlmostEqual(float(home_row["efg_pct"]), 2 / 3, places=6)
+        self.assertEqual(int(home_row["best_quarter_points"]), 2)
+        self.assertEqual(int(home_row["best_half_points"]), 3)
+        self.assertEqual(int(home_row["best_60_sec_points"]), 2)
         self.assertEqual(int(away_row["final_points"]), 7)
         self.assertEqual(int(away_row["final_player_team_margin"]), 2)
         self.assertEqual(int(away_row["max_deficit_during_scoring_events"]), 0)
+        self.assertEqual(int(away_row["points_from_3s"]), 3)
+        self.assertTrue(bool(away_row["went_to_overtime"]))
+
+        quarter_summary = summarize_player_quarters(scoring_events)
+        home_q1 = quarter_summary.loc[
+            quarter_summary["player_id"].eq(100) & quarter_summary["quarter_number"].eq(1)
+        ].iloc[0]
+        self.assertEqual(int(home_q1["quarter_points"]), 2)
+        self.assertEqual(home_q1["quarter_label"], "Q1")
+        self.assertAlmostEqual(float(home_q1["points_per_minute"]), 1 / 6, places=6)
+
+        half_summary = summarize_player_halves(scoring_events)
+        home_half = half_summary.loc[half_summary["player_id"].eq(100)].iloc[0]
+        self.assertEqual(int(home_half["half_points"]), 3)
+        self.assertEqual(home_half["half_label"], "1H")
+
+        burst_summary = summarize_player_bursts(scoring_events)
+        home_burst_60 = burst_summary.loc[
+            burst_summary["player_id"].eq(100) & burst_summary["burst_window_seconds"].eq(60)
+        ].iloc[0]
+        self.assertEqual(int(home_burst_60["points_in_window"]), 2)
+        self.assertEqual(int(home_burst_60["start_period"]), 1)
+        self.assertEqual(home_burst_60["start_clock"], "PT11M30.00S")
 
     def test_extract_scoring_events_uses_score_deltas_and_action_id_order(self) -> None:
         raw_df = pd.DataFrame(

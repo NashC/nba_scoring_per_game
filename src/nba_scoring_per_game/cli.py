@@ -35,6 +35,7 @@ def main() -> None:
 
     query_parser = subparsers.add_parser("query-summaries", help="Filter and rank player-game summaries")
     query_parser.add_argument("--out-dir", default="data")
+    query_parser.add_argument("--entity-mode", default="game", choices=["game", "quarter", "half", "burst"])
     query_parser.add_argument("--min-points", type=int)
     query_parser.add_argument("--max-points", type=int)
     query_parser.add_argument("--max-avg-abs-margin", type=float)
@@ -42,15 +43,12 @@ def main() -> None:
     query_parser.add_argument("--min-pct-within-3", type=float)
     query_parser.add_argument("--min-pct-within-5", type=float)
     query_parser.add_argument("--min-pct-within-10", type=float)
-    query_parser.add_argument(
-        "--sort-by",
-        default="final_points",
-        choices=[
-            "final_points",
-            "avg_abs_margin_during_scoring_events",
-            "median_abs_margin_during_scoring_events",
-        ],
-    )
+    query_parser.add_argument("--min-competitive-share", type=float)
+    query_parser.add_argument("--ranking-metric", default="total_points")
+    query_parser.add_argument("--sort-by", default="final_points")
+    query_parser.add_argument("--burst-window", type=int)
+    query_parser.add_argument("--competitive-only", default="false")
+    query_parser.add_argument("--include-ot", default="true")
     query_parser.add_argument("--descending", default="true")
 
     args = parser.parse_args()
@@ -97,13 +95,15 @@ def main() -> None:
         return
 
     if args.command == "query-summaries":
-        summary_path = Path(args.out_dir) / "player_game_summaries"
+        dataset_dir = _dataset_dir_for_entity_mode(args.entity_mode)
+        summary_path = Path(args.out_dir) / dataset_dir
         summary_df = load_dataset(summary_path)
         if summary_df.empty:
             print("No summary data found.")
             return
         result = query_player_games(
             summary_df,
+            entity_mode=args.entity_mode,
             min_points=args.min_points,
             max_points=args.max_points,
             max_avg_abs_margin=args.max_avg_abs_margin,
@@ -111,6 +111,11 @@ def main() -> None:
             min_pct_within_3=args.min_pct_within_3,
             min_pct_within_5=args.min_pct_within_5,
             min_pct_within_10=args.min_pct_within_10,
+            competitive_only=_parse_bool(args.competitive_only),
+            min_competitive_share=args.min_competitive_share,
+            include_ot=_parse_bool(args.include_ot),
+            burst_window=args.burst_window,
+            ranking_metric=args.ranking_metric,
             sort_by=args.sort_by,
             ascending=not _parse_bool(args.descending),
         )
@@ -135,9 +140,22 @@ def _artifact_to_row(artifact: object) -> dict[str, object]:
         "skipped_existing": artifact.skipped_existing,
         "validation_passed": artifact.validation_report.get("validation_passed"),
         "num_scoring_events": len(artifact.raw_scoring_events),
+        "num_quarter_rows": len(artifact.player_quarter_summaries),
+        "num_half_rows": len(artifact.player_half_summaries),
+        "num_burst_rows": len(artifact.player_burst_summaries),
         "error_type": artifact.error_type,
         "error_message": artifact.error_message,
     }
+
+
+def _dataset_dir_for_entity_mode(entity_mode: str) -> str:
+    mapping = {
+        "game": "player_game_summaries",
+        "quarter": "player_quarter_summaries",
+        "half": "player_half_summaries",
+        "burst": "player_burst_summaries",
+    }
+    return mapping[entity_mode]
 
 
 if __name__ == "__main__":
