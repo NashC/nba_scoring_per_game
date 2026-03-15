@@ -7,7 +7,13 @@ from dash import dash_table
 import pandas as pd
 
 from ..transforms import build_burst_timeline, build_half_timeline, build_quarter_timeline
-from .charts import build_empty_figure, build_secondary_analysis_figure, build_trajectory_figure
+from .charts import (
+    COMPARISON_COLORS,
+    SHOT_COLORS,
+    build_empty_figure,
+    build_secondary_analysis_figure,
+    build_trajectory_figure,
+)
 from .loader import DashboardDatasets, load_selected_timelines
 from .state import (
     DashboardFilters,
@@ -76,6 +82,8 @@ def build_dashboard_layout(datasets: DashboardDatasets) -> html.Div:
     )
     initial_secondary_figure = build_secondary_analysis_figure(initial_selected_records, initial_timelines, default_filters)
     initial_details = build_enriched_detail_cards(initial_selected_records, default_filters.entity_mode, initial_timelines)
+    initial_chart_summary = build_chart_summary_strip(initial_selected_records, default_filters.entity_mode)
+    initial_chart_key = build_chart_visual_key(default_filters)
     initial_status = (
         "Previewing the top-ranked performance. Select rows in the leaderboard to compare up to 4 lines."
         if initial_records
@@ -309,6 +317,7 @@ def build_dashboard_layout(datasets: DashboardDatasets) -> html.Div:
                                 sort_action="none",
                                 style_as_list_view=True,
                                 page_size=14,
+                                markdown_options={"html": True},
                                 style_table={"overflowX": "auto"},
                                 style_header={
                                     "backgroundColor": "#efe5d7",
@@ -336,10 +345,10 @@ def build_dashboard_layout(datasets: DashboardDatasets) -> html.Div:
                             html.Div(
                                 className="panel-header",
                                 children=[
-                                    html.H2("Trajectory View", className="panel-title"),
+                                    html.H2("Historic Scoring Trajectories", className="panel-title"),
                                     html.P(
-                                        "The main chart stays cumulative. Toggle shot markers and context colors here, "
-                                        "and use the synchronized panel below for pace or rolling burst analysis.",
+                                        "The main chart stays cumulative. Use the summary strip for fast context, "
+                                        "keep lines for player comparison, and let marker colors explain shot type.",
                                         className="panel-caption",
                                     ),
                                 ],
@@ -383,6 +392,8 @@ def build_dashboard_layout(datasets: DashboardDatasets) -> html.Div:
                                 className="bundle-status",
                             ),
                             html.Div(id="comparison-tray", className="comparison-tray", children=build_comparison_tray(initial_selected_records)),
+                            html.Div(id="chart-summary-strip", className="chart-summary-strip", children=initial_chart_summary),
+                            html.Div(id="chart-visual-key", className="chart-visual-key", children=initial_chart_key),
                             html.Div(id="margin-legend-wrap", className="margin-legend-wrap", style={"display": "none"}, children=build_margin_legend()),
                             dcc.Graph(
                                 id="comparison-chart",
@@ -535,9 +546,20 @@ def build_detail_card(record: dict[str, Any], entity_mode: str, timeline_df):
                     html.Div(
                         children=[
                             html.H3(record.get("player_name", "Unknown"), className="detail-card-title"),
-                            html.P(
-                                f"{record.get('team_tricode', '')} vs {record.get('opponent_team_tricode', '')} · {record.get('game_date', '')}",
-                                className="detail-card-subtitle",
+                            html.Div(
+                                className="detail-card-subtitle detail-matchup-row",
+                                children=[
+                                    _team_logo_img(record.get("team_id"), record.get("team_tricode"), class_name="team-logo team-logo-medium"),
+                                    html.Span(record.get("team_tricode", ""), className="matchup-team-code"),
+                                    html.Span("vs", className="matchup-vs"),
+                                    _team_logo_img(
+                                        record.get("opponent_team_id"),
+                                        record.get("opponent_team_tricode"),
+                                        class_name="team-logo team-logo-medium",
+                                    ),
+                                    html.Span(record.get("opponent_team_tricode", ""), className="matchup-team-code"),
+                                    html.Span(f"· {record.get('game_date', '')}", className="matchup-date"),
+                                ],
                             ),
                             html.Div(badges, className="detail-badge-row") if badges else None,
                         ]
@@ -569,6 +591,7 @@ def build_comparison_tray(selected_records: list[dict[str, Any]]):
         html.Div(
             className="comparison-chip",
             children=[
+                _team_logo_img(record.get("team_id"), record.get("team_tricode"), class_name="team-logo team-logo-small comparison-chip-logo"),
                 html.Span(f"{record.get('player_name')} · {record.get('entity_label')}", className="comparison-chip-label"),
                 html.Button(
                     "Remove",
@@ -590,6 +613,87 @@ def build_comparison_tray(selected_records: list[dict[str, Any]]):
         ],
     )
     return [html.Div(chips, className="comparison-chip-list"), actions]
+
+
+def build_chart_summary_strip(selected_records: list[dict[str, Any]], entity_mode: str):
+    if not selected_records:
+        return html.Div("Select one or more leaderboard rows to populate the chart summary.", className="chart-summary-empty")
+
+    cards = []
+    for index, record in enumerate(selected_records[:4]):
+        color = COMPARISON_COLORS[index % len(COMPARISON_COLORS)]
+        cards.append(
+            html.Div(
+                className="chart-summary-card",
+                children=[
+                    html.Div(
+                        className="chart-summary-card-header",
+                        children=[
+                            html.Span(className="chart-summary-swatch", style={"backgroundColor": color}),
+                            html.Div(
+                                children=[
+                                    html.Div(record.get("player_name", "Unknown"), className="chart-summary-player"),
+                                    html.Div(
+                                        className="chart-summary-label chart-summary-matchup",
+                                        children=[
+                                            html.Span(record.get("entity_label", "Selection")),
+                                            html.Span("·", className="chart-summary-divider"),
+                                            _team_logo_img(
+                                                record.get("team_id"),
+                                                record.get("team_tricode"),
+                                                class_name="team-logo team-logo-small",
+                                            ),
+                                            html.Span(record.get("team_tricode", "")),
+                                            html.Span("vs", className="matchup-vs"),
+                                            _team_logo_img(
+                                                record.get("opponent_team_id"),
+                                                record.get("opponent_team_tricode"),
+                                                class_name="team-logo team-logo-small",
+                                            ),
+                                            html.Span(record.get("opponent_team_tricode", "")),
+                                        ],
+                                    ),
+                                ],
+                            ),
+                            html.Span("Focus" if index == 0 else "Context", className="chart-summary-role"),
+                        ],
+                    ),
+                    html.Div(className="chart-summary-metrics", children=_summary_metrics_for_record(record, entity_mode)),
+                ],
+            )
+        )
+    return cards
+
+
+def build_chart_visual_key(filters: DashboardFilters):
+    items = [
+        html.Div(
+            className="chart-key-item",
+            children=[
+                html.Span(className="chart-key-line chart-key-line-focus"),
+                html.Span("Focus line", className="chart-key-label"),
+            ],
+        ),
+        html.Div(
+            className="chart-key-item",
+            children=[
+                html.Span(className="chart-key-line chart-key-line-context"),
+                html.Span("Comparison context", className="chart-key-label"),
+            ],
+        ),
+    ]
+    if filters.show_shot_markers:
+        for label, color in [("2PT", SHOT_COLORS["2PT"]), ("3PT", SHOT_COLORS["3PT"]), ("FT", SHOT_COLORS["FT"])]:
+            items.append(
+                html.Div(
+                    className="chart-key-item",
+                    children=[
+                        html.Span(className="chart-key-dot", style={"backgroundColor": color}),
+                        html.Span(label, className="chart-key-label"),
+                    ],
+                )
+            )
+    return items
 
 
 def build_quick_view_bar(active_preset: str | None):
@@ -712,6 +816,62 @@ def _metric_chip(label: str, value: Any) -> html.Div:
         children=[
             html.Div(str(value), className="metric-chip-value"),
             html.Div(label, className="metric-chip-label"),
+        ],
+    )
+
+
+def _team_logo_img(team_id: Any, tricode: Any, *, class_name: str = "team-logo") -> html.Span | html.Img:
+    tri = "" if tricode in {None, "", "None"} else str(tricode).strip()
+    try:
+        numeric_team_id = int(team_id)
+    except (TypeError, ValueError):
+        numeric_team_id = None
+    if numeric_team_id is None:
+        return html.Span(tri, className=f"{class_name} team-logo-fallback".strip())
+    return html.Img(
+        src=f"/assets/team_logos/{numeric_team_id}.svg",
+        alt=tri or str(numeric_team_id),
+        title=tri or str(numeric_team_id),
+        className=class_name,
+    )
+
+
+def _summary_metrics_for_record(record: dict[str, Any], entity_mode: str) -> list[html.Div]:
+    if entity_mode == "game":
+        return [
+            _summary_metric("Points", str(int(record.get("final_points", 0) or 0))),
+            _summary_metric("Shot Mix", _shot_mix(record)),
+            _summary_metric("Comp", _pct(record.get("competitive_scoring_share"))),
+            _summary_metric("Peak Pace", _decimal(record.get("peak_projected_48"))),
+        ]
+    if entity_mode == "quarter":
+        return [
+            _summary_metric("Points", str(int(record.get("quarter_points", 0) or 0))),
+            _summary_metric("Rate", _decimal(record.get("points_per_minute"))),
+            _summary_metric("3PT Share", _pct(record.get("share_points_from_3s"))),
+            _summary_metric("Comp", _pct(record.get("competitive_scoring_share"))),
+        ]
+    if entity_mode == "half":
+        return [
+            _summary_metric("Points", str(int(record.get("half_points", 0) or 0))),
+            _summary_metric("Rate", _decimal(record.get("points_per_minute"))),
+            _summary_metric("3PT Share", _pct(record.get("share_points_from_3s"))),
+            _summary_metric("Comp", _pct(record.get("competitive_scoring_share"))),
+        ]
+    return [
+        _summary_metric("Points", str(int(record.get("points_in_window", 0) or 0))),
+        _summary_metric("Rate", _decimal(record.get("window_points_per_minute", record.get("points_per_minute")))),
+        _summary_metric("3PT Share", _pct(record.get("share_points_from_3s"))),
+        _summary_metric("Comp", _pct(record.get("competitive_scoring_share"))),
+    ]
+
+
+def _summary_metric(label: str, value: str) -> html.Div:
+    return html.Div(
+        className="chart-summary-metric",
+        children=[
+            html.Div(label, className="chart-summary-metric-label"),
+            html.Div(value, className="chart-summary-metric-value"),
         ],
     )
 

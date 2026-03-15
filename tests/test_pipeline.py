@@ -302,6 +302,56 @@ class PipelineTests(unittest.TestCase):
         self.assertEqual(len(manifest), 1)
         self.assertEqual(manifest.iloc[0]["game_id"], "game-456")
 
+    def test_fetch_game_manifest_tolerates_ambiguous_current_season_matchups(self) -> None:
+        team_logs = pd.DataFrame(
+            [
+                {
+                    "SEASON_ID": "22024",
+                    "TEAM_ID": 1610612748,
+                    "TEAM_ABBREVIATION": "MIA",
+                    "TEAM_NAME": "Heat",
+                    "GAME_ID": "0022400147",
+                    "GAME_DATE": "2024-11-02",
+                    "MATCHUP": "MIA @ WAS",
+                    "WL": "W",
+                },
+                {
+                    "SEASON_ID": "22024",
+                    "TEAM_ID": 1610612764,
+                    "TEAM_ABBREVIATION": "WAS",
+                    "TEAM_NAME": "Wizards",
+                    "GAME_ID": "0022400147",
+                    "GAME_DATE": "2024-11-02",
+                    "MATCHUP": "WAS @ MIA",
+                    "WL": "L",
+                },
+            ]
+        )
+
+        with patch("nba_scoring_per_game.source._fetch_league_game_log", return_value=team_logs):
+            manifest = fetch_game_manifest("2024-25")
+
+        self.assertEqual(len(manifest), 1)
+        self.assertEqual(set(manifest.iloc[0][["home_team_tricode", "away_team_tricode"]]), {"MIA", "WAS"})
+
+    def test_process_game_resolves_matchup_context_from_playbyplay(self) -> None:
+        manifest_row = make_manifest_row() | {
+            "home_team_id": 2,
+            "home_team_tricode": "AWY",
+            "away_team_id": 1,
+            "away_team_tricode": "HOM",
+        }
+        with TemporaryDirectory() as tmpdir:
+            with patch("nba_scoring_per_game.pipeline.fetch_playbyplay", return_value=make_raw_playbyplay()), patch(
+                "nba_scoring_per_game.pipeline.fetch_boxscore_player_totals",
+                return_value=make_boxscore_totals(),
+            ):
+                artifact = process_game(manifest_row, out_dir=tmpdir, write_mode="overwrite", raw_cache=False)
+
+        self.assertEqual(artifact.status, "success")
+        self.assertEqual(artifact.manifest_row["home_team_tricode"], "HOM")
+        self.assertEqual(artifact.manifest_row["away_team_tricode"], "AWY")
+
 
 if __name__ == "__main__":
     unittest.main()

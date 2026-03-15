@@ -108,31 +108,8 @@ def fetch_game_manifest(
     )[["game_id", "game_date", "team_id", "team_tricode", "matchup"]].copy()
     logs["season"] = season
     logs["season_type"] = season_type
-    logs["is_home"] = logs["matchup"].astype(str).str.contains("vs.", regex=False)
     logs = logs.drop_duplicates(subset=["game_id", "team_id"]).reset_index(drop=True)
-
-    home = logs.loc[logs["is_home"]].rename(
-        columns={"team_id": "home_team_id", "team_tricode": "home_team_tricode"}
-    )[["season", "season_type", "game_id", "game_date", "home_team_id", "home_team_tricode"]]
-    away = logs.loc[~logs["is_home"]].rename(
-        columns={"team_id": "away_team_id", "team_tricode": "away_team_tricode"}
-    )[["season", "season_type", "game_id", "game_date", "away_team_id", "away_team_tricode"]]
-
-    manifest = home.merge(
-        away,
-        on=["season", "season_type", "game_id", "game_date"],
-        how="outer",
-        validate="one_to_one",
-    ).sort_values(["game_date", "game_id"]).reset_index(drop=True)
-
-    missing_home = manifest["home_team_id"].isna() | manifest["home_team_tricode"].isna()
-    missing_away = manifest["away_team_id"].isna() | manifest["away_team_tricode"].isna()
-    if (missing_home | missing_away).any():
-        sample = manifest.loc[missing_home | missing_away].head(5)
-        raise ValueError(
-            "Could not derive complete home/away team metadata for all games. "
-            f"Sample rows:\n{sample.to_string(index=False)}"
-        )
+    manifest = _pair_team_logs_into_manifest(logs)
 
     if min_player_points is None:
         return manifest
@@ -176,6 +153,59 @@ def _fetch_league_game_log(
         season_type_all_star=season_type,
         player_or_team_abbreviation=player_or_team_abbreviation,
     ).get_data_frames()[0].copy()
+
+
+def _pair_team_logs_into_manifest(logs: pd.DataFrame) -> pd.DataFrame:
+    rows: list[dict[str, object]] = []
+    grouped = logs.groupby(["season", "season_type", "game_id", "game_date"], sort=False, dropna=False)
+    for (season, season_type, game_id, game_date), group in grouped:
+        group = group.copy()
+        group["matchup_side"] = group["matchup"].astype(str).map(_parse_matchup_side)
+        home_rows = group.loc[group["matchup_side"].eq("home")]
+        away_rows = group.loc[group["matchup_side"].eq("away")]
+
+        if len(home_rows) == 1 and len(away_rows) == 1:
+            home_row = home_rows.iloc[0]
+            away_row = away_rows.iloc[0]
+        elif len(group) >= 2:
+            # Current official team logs occasionally mark both team rows as away.
+            # Keep the two participating teams and let play-by-play resolve the true
+            # home/away orientation during game processing.
+            ordered = group.sort_values(["team_tricode", "team_id"], kind="stable").reset_index(drop=True)
+            home_row = ordered.iloc[0]
+            away_row = ordered.iloc[1]
+        else:
+            raise ValueError(
+                "Could not derive both participating teams for game "
+                f"{game_id} on {game_date}."
+            )
+
+        rows.append(
+            {
+                "season": season,
+                "season_type": season_type,
+                "game_id": game_id,
+                "game_date": game_date,
+                "home_team_id": home_row["team_id"],
+                "home_team_tricode": home_row["team_tricode"],
+                "away_team_id": away_row["team_id"],
+                "away_team_tricode": away_row["team_tricode"],
+            }
+        )
+
+    manifest = pd.DataFrame(rows)
+    if manifest.empty:
+        raise ValueError("No games could be derived from the team game logs.")
+    return manifest.sort_values(["game_date", "game_id"]).reset_index(drop=True)
+
+
+def _parse_matchup_side(matchup: object) -> str | None:
+    text = str(matchup).strip()
+    if "vs." in text:
+        return "home"
+    if "@" in text:
+        return "away"
+    return None
 
 
 def _normalize_min_player_points(value: int | None) -> int:

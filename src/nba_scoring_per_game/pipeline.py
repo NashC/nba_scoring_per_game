@@ -116,6 +116,8 @@ def process_game(
         artifact.error_message = str(exc)
         return artifact
 
+    row = _resolve_matchup_context_from_playbyplay(row, raw_playbyplay)
+    artifact.manifest_row = row
     artifact.raw_playbyplay = raw_playbyplay
     if raw_cache:
         try:
@@ -540,6 +542,54 @@ def _add_matchup_context(df: pd.DataFrame, row: Mapping[str, Any]) -> pd.DataFra
         index=enriched.index,
     )
     return enriched
+
+
+def _resolve_matchup_context_from_playbyplay(
+    row: Mapping[str, Any],
+    raw_playbyplay: pd.DataFrame,
+) -> dict[str, Any]:
+    resolved = dict(row)
+    if raw_playbyplay.empty:
+        return resolved
+
+    required = {"teamId", "teamTricode", "location"}
+    if not required.issubset(raw_playbyplay.columns):
+        return resolved
+
+    candidates = raw_playbyplay.loc[
+        raw_playbyplay["teamId"].notna()
+        & raw_playbyplay["teamTricode"].notna()
+        & raw_playbyplay["location"].astype(str).str.lower().isin({"h", "v"})
+    , ["teamId", "teamTricode", "location"]].copy()
+    if candidates.empty:
+        return resolved
+
+    candidates["teamId"] = pd.to_numeric(candidates["teamId"], errors="coerce")
+    candidates = candidates.dropna(subset=["teamId"])
+    if candidates.empty:
+        return resolved
+
+    candidates["location"] = candidates["location"].astype(str).str.lower()
+    grouped = (
+        candidates.groupby(["teamId", "teamTricode", "location"], dropna=False)
+        .size()
+        .reset_index(name="event_count")
+    )
+    home_rows = grouped.loc[grouped["location"].eq("h")].sort_values("event_count", ascending=False)
+    away_rows = grouped.loc[grouped["location"].eq("v")].sort_values("event_count", ascending=False)
+    if home_rows.empty or away_rows.empty:
+        return resolved
+
+    home_row = home_rows.iloc[0]
+    away_row = away_rows.iloc[0]
+    if int(home_row["teamId"]) == int(away_row["teamId"]):
+        return resolved
+
+    resolved["home_team_id"] = int(home_row["teamId"])
+    resolved["home_team_tricode"] = str(home_row["teamTricode"])
+    resolved["away_team_id"] = int(away_row["teamId"])
+    resolved["away_team_tricode"] = str(away_row["teamTricode"])
+    return resolved
 
 
 def _build_dataset_metadata() -> dict[str, Any]:

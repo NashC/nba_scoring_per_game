@@ -154,11 +154,11 @@ QUERY_PARAM_KEYS = {
 LEADERBOARD_BASE_SPECS = {
     "game": [
         ("rank", "#", "text"),
-        ("player_name", "Player", "text"),
-        ("team_tricode", "Team", "text"),
-        ("opponent_team_tricode", "Opp", "text"),
-        ("game_date", "Date", "text"),
         ("final_points", "Points", "int"),
+        ("player_name", "Player", "text"),
+        ("team_logo", "Team", "markdown"),
+        ("opponent_team_logo", "Opp", "markdown"),
+        ("game_date", "Date", "text"),
         ("points_per_minute", "Pts / Min", "decimal"),
         ("ts_pct", "TS%", "pct1"),
         ("efg_pct", "eFG%", "pct1"),
@@ -168,12 +168,12 @@ LEADERBOARD_BASE_SPECS = {
     ],
     "quarter": [
         ("rank", "#", "text"),
+        ("quarter_points", "Points", "int"),
         ("player_name", "Player", "text"),
-        ("team_tricode", "Team", "text"),
-        ("opponent_team_tricode", "Opp", "text"),
+        ("team_logo", "Team", "markdown"),
+        ("opponent_team_logo", "Opp", "markdown"),
         ("game_date", "Date", "text"),
         ("entity_label", "Segment", "text"),
-        ("quarter_points", "Points", "int"),
         ("points_per_minute", "Pts / Min", "decimal"),
         ("competitive_scoring_share", "Comp Share", "pct1"),
         ("avg_abs_margin_during_scoring_events", "Avg Abs Margin", "decimal"),
@@ -182,12 +182,12 @@ LEADERBOARD_BASE_SPECS = {
     ],
     "half": [
         ("rank", "#", "text"),
+        ("half_points", "Points", "int"),
         ("player_name", "Player", "text"),
-        ("team_tricode", "Team", "text"),
-        ("opponent_team_tricode", "Opp", "text"),
+        ("team_logo", "Team", "markdown"),
+        ("opponent_team_logo", "Opp", "markdown"),
         ("game_date", "Date", "text"),
         ("entity_label", "Segment", "text"),
-        ("half_points", "Points", "int"),
         ("points_per_minute", "Pts / Min", "decimal"),
         ("competitive_scoring_share", "Comp Share", "pct1"),
         ("avg_abs_margin_during_scoring_events", "Avg Abs Margin", "decimal"),
@@ -196,12 +196,12 @@ LEADERBOARD_BASE_SPECS = {
     ],
     "burst": [
         ("rank", "#", "text"),
+        ("points_in_window", "Points", "int"),
         ("player_name", "Player", "text"),
-        ("team_tricode", "Team", "text"),
-        ("opponent_team_tricode", "Opp", "text"),
+        ("team_logo", "Team", "markdown"),
+        ("opponent_team_logo", "Opp", "markdown"),
         ("game_date", "Date", "text"),
         ("entity_label", "Burst", "text"),
-        ("points_in_window", "Points", "int"),
         ("window_points_per_minute", "Pts / Min", "decimal"),
         ("competitive_scoring_share", "Comp Share", "pct1"),
         ("avg_abs_score_diff_in_window", "Avg Abs Margin", "decimal"),
@@ -607,7 +607,13 @@ def filter_values_from_filters(filters: DashboardFilters) -> dict[str, Any]:
 
 
 def _leaderboard_columns(column_specs: list[tuple[str, str, str]]) -> list[dict[str, str]]:
-    return [{"name": label, "id": _display_id(column_id)} for column_id, label, _ in column_specs]
+    columns: list[dict[str, str]] = []
+    for column_id, label, column_type in column_specs:
+        column = {"name": label, "id": _display_id(column_id)}
+        if column_type == "markdown":
+            column["presentation"] = "markdown"
+        columns.append(column)
+    return columns
 
 
 def _leaderboard_column_specs(entity_mode: str, ranking_metric: str) -> list[tuple[str, str, str]]:
@@ -634,6 +640,14 @@ def _leaderboard_style_metadata(
         if column_type != "text" and column_id != "rank"
     ]
     style_cell_conditional = [{"if": {"column_id": column_id}, "textAlign": "right"} for column_id in numeric_columns]
+    for column_id, _, column_type in column_specs:
+        if column_type == "markdown":
+            style_cell_conditional.append(
+                {
+                    "if": {"column_id": _display_id(column_id)},
+                    "textAlign": "center",
+                }
+            )
     style_data_conditional: list[dict[str, Any]] = [
         {
             "if": {"state": "selected"},
@@ -667,8 +681,14 @@ def _leaderboard_style_metadata(
 def _format_display_series(df: pd.DataFrame, column_id: str, column_type: str) -> pd.Series:
     if column_id == "rank":
         return df["rank"]
+    if column_id == "team_logo":
+        return _team_logo_markdown_series(df, "team_id", "team_tricode")
+    if column_id == "opponent_team_logo":
+        return _team_logo_markdown_series(df, "opponent_team_id", "opponent_team_tricode")
     series = df.get(column_id, pd.Series(index=df.index, dtype="object"))
     if column_type == "text":
+        return series.fillna("").astype(str)
+    if column_type == "markdown":
         return series.fillna("").astype(str)
     numeric = pd.to_numeric(series, errors="coerce")
     if column_type == "int":
@@ -711,6 +731,8 @@ def _column_type_for_metric(column_id: str) -> str:
         "entity_label",
     }:
         return "text"
+    if column_id in {"team_logo", "opponent_team_logo"}:
+        return "markdown"
     if column_id.endswith("_share") or column_id in {"ts_pct", "efg_pct", "competitive_scoring_share"}:
         return "pct1"
     if "points" in column_id or column_id.endswith("_margin") or column_id.endswith("_window"):
@@ -737,6 +759,34 @@ def _display_id(column_id: str) -> str:
     if column_id in {"rank", "player_name", "team_tricode", "opponent_team_tricode", "entity_label"}:
         return column_id
     return f"{column_id}_display"
+
+
+def _team_logo_markdown_series(df: pd.DataFrame, team_id_column: str, tricode_column: str) -> pd.Series:
+    return pd.Series(
+        [
+            _team_logo_markdown(team_id, tricode)
+            for team_id, tricode in zip(df.get(team_id_column, pd.Series(index=df.index)), df.get(tricode_column, pd.Series(index=df.index)))
+        ],
+        index=df.index,
+        dtype="object",
+    )
+
+
+def _team_logo_markdown(team_id: Any, tricode: Any) -> str:
+    tri = "" if tricode in {None, "", "None"} else str(tricode).strip()
+    try:
+        numeric_team_id = int(team_id)
+    except (TypeError, ValueError):
+        numeric_team_id = None
+    if numeric_team_id is None:
+        return tri
+    src = f"/assets/team_logos/{numeric_team_id}.svg"
+    title = tri or str(numeric_team_id)
+    return (
+        f'<div class="table-team-logo-wrap">'
+        f'<img src="{src}" alt="{title}" title="{title}" class="table-team-logo" />'
+        f"</div>"
+    )
 
 
 def _highlight_display_id(entity_mode: str, ranking_metric: str) -> str:

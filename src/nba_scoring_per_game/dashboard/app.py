@@ -7,7 +7,14 @@ import pandas as pd
 from dash import ALL, Dash, Input, Output, State, ctx, dcc, no_update
 
 from .charts import build_empty_figure, build_secondary_analysis_figure, build_trajectory_figure
-from .layout import build_comparison_tray, build_dashboard_layout, build_enriched_detail_cards, build_quick_view_bar
+from .layout import (
+    build_chart_summary_strip,
+    build_chart_visual_key,
+    build_comparison_tray,
+    build_dashboard_layout,
+    build_enriched_detail_cards,
+    build_quick_view_bar,
+)
 from .loader import DashboardDatasets, load_dashboard_datasets, load_selected_timelines
 from .state import (
     DashboardFilters,
@@ -71,6 +78,8 @@ def render_dashboard_view(
             "details": build_enriched_detail_cards([], filters.entity_mode, pd.DataFrame()),
             "status": empty_message,
             "comparison_tray": build_comparison_tray([]),
+            "chart_summary": build_chart_summary_strip([], filters.entity_mode),
+            "chart_visual_key": build_chart_visual_key(filters),
             "secondary_title": _secondary_title(filters),
             "secondary_note": _secondary_note(filters),
         }
@@ -104,6 +113,8 @@ def render_dashboard_view(
         "details": details,
         "status": status,
         "comparison_tray": build_comparison_tray(selected_records),
+        "chart_summary": build_chart_summary_strip(selected_records, filters.entity_mode),
+        "chart_visual_key": build_chart_visual_key(filters),
         "secondary_title": _secondary_title(filters),
         "secondary_note": _secondary_note(filters),
     }
@@ -469,6 +480,8 @@ def _register_callbacks(app: Dash, datasets: DashboardDatasets, out_dir: Path) -
         Output("detail-panel-content", "children"),
         Output("status-banner", "children"),
         Output("comparison-tray", "children"),
+        Output("chart-summary-strip", "children"),
+        Output("chart-visual-key", "children"),
         Output("secondary-analysis-title", "children"),
         Output("secondary-analysis-note", "children"),
         Input("entity-mode", "value"),
@@ -564,6 +577,8 @@ def _register_callbacks(app: Dash, datasets: DashboardDatasets, out_dir: Path) -
             view["details"],
             view["status"],
             view["comparison_tray"],
+            view["chart_summary"],
+            view["chart_visual_key"],
             view["secondary_title"],
             view["secondary_note"],
         )

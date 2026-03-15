@@ -24,4 +24,4 @@ build-backend = "setuptools.build_meta"
 where = ["src"]
 
 [tool.setuptools.package-data]
-"nba_scoring_per_game.dashboard" = ["assets/*.css"]
+"nba_scoring_per_game.dashboard" = ["assets/*.css", "assets/team_logos/*.svg"]

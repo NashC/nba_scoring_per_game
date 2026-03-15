@@ -69,6 +69,7 @@ def build_trajectory_figure(
 
     figure = go.Figure()
     x_field, y_field, x_title = _axis_fields(filters.entity_mode, filters.time_mode)
+    has_multiple = len(selected_records) > 1
 
     for index, record in enumerate(selected_records):
         selection = selection_from_record(record, filters.entity_mode)
@@ -77,16 +78,27 @@ def build_trajectory_figure(
             continue
 
         line_color = COMPARISON_COLORS[index % len(COMPARISON_COLORS)]
+        emphasis = _emphasis_style(index, has_multiple)
         if filters.line_color_mode == "margin":
-            _add_margin_segment_traces(figure, entity_timeline, selection, x_field, y_field, index)
+            _add_margin_segment_traces(
+                figure,
+                entity_timeline,
+                selection,
+                record,
+                x_field,
+                y_field,
+                index,
+                emphasis=emphasis,
+            )
         else:
             figure.add_trace(
                 go.Scatter(
                     x=entity_timeline[x_field],
                     y=entity_timeline[y_field],
                     mode="lines",
-                    line={"color": line_color, "width": 3, "shape": "hv"},
-                    name=_legend_label(selection),
+                    line={"color": line_color, "width": emphasis["line_width"], "shape": "hv"},
+                    opacity=emphasis["line_opacity"],
+                    name=_legend_label(selection, record),
                     legendgroup=selection.selection_id,
                     hoverinfo="skip",
                 )
@@ -98,14 +110,14 @@ def build_trajectory_figure(
                     x=entity_timeline[x_field],
                     y=entity_timeline[y_field],
                     mode="markers",
-                    name=f"{_legend_label(selection)} events",
+                    name=f"{_legend_label(selection, record)} events",
                     legendgroup=selection.selection_id,
                     showlegend=False,
                     marker={
-                        "size": 9,
+                        "size": emphasis["marker_size"],
                         "color": [SHOT_COLORS.get(value, line_color) for value in entity_timeline["scoring_type"]],
                         "line": {"color": PAPER, "width": 1},
-                        "opacity": 0.95,
+                        "opacity": emphasis["marker_opacity"],
                     },
                     customdata=_hover_customdata(entity_timeline, filters),
                     hovertemplate=_hover_template(),
@@ -117,7 +129,7 @@ def build_trajectory_figure(
                     x=entity_timeline[x_field],
                     y=entity_timeline[y_field],
                     mode="markers",
-                    name=f"{_legend_label(selection)} hover",
+                    name=f"{_legend_label(selection, record)} hover",
                     legendgroup=selection.selection_id,
                     showlegend=False,
                     marker={"size": 14, "color": "rgba(0,0,0,0.001)", "opacity": 1.0},
@@ -140,25 +152,25 @@ def build_trajectory_figure(
             "bgcolor": "#1f1b18",
             "font": {"family": "Avenir Next, Trebuchet MS, Helvetica Neue, sans-serif", "color": "#fffaf2"},
         },
-        margin={"l": 60, "r": 24, "t": 56, "b": 56},
+        margin={"l": 60, "r": 24, "t": 20, "b": 112},
         height=560,
         legend={
             "orientation": "h",
-            "yanchor": "bottom",
-            "y": 1.02,
+            "yanchor": "top",
+            "y": -0.16,
             "xanchor": "left",
             "x": 0.0,
             "bgcolor": "rgba(0,0,0,0)",
+            "font": {"size": 13, "color": TEXT},
+            "entrywidth": 160,
+            "entrywidthmode": "pixels",
+            "tracegroupgap": 10,
         },
-        title={
-            "text": _chart_title(filters),
-            "x": 0.02,
-            "xanchor": "left",
-            "font": {"size": 22, "color": TEXT},
-        },
-        xaxis={"title": x_title, "gridcolor": GRID, "zeroline": False},
+        xaxis={"title": {"text": x_title, "standoff": 54}, "gridcolor": GRID, "zeroline": False},
         yaxis={"title": _y_axis_title(filters.entity_mode), "gridcolor": GRID, "zeroline": False},
     )
+    if filters.entity_mode == "game" and filters.time_mode == "raw":
+        _apply_game_time_axis_markers(figure, timeline_df)
     if filters.time_mode == "normalized":
         figure.update_xaxes(range=[0, 1], tickformat=".0%")
     return figure
@@ -238,12 +250,23 @@ def build_secondary_analysis_figure(
             "bgcolor": "#1f1b18",
             "font": {"family": "Avenir Next, Trebuchet MS, Helvetica Neue, sans-serif", "color": "#fffaf2"},
         },
-        margin={"l": 60, "r": 24, "t": 48, "b": 48},
+        margin={"l": 60, "r": 24, "t": 48, "b": 96},
         height=320,
-        legend={"orientation": "h", "yanchor": "bottom", "y": 1.02, "xanchor": "left", "x": 0.0},
-        xaxis={"title": x_title, "gridcolor": GRID, "zeroline": False},
+        legend={
+            "orientation": "h",
+            "yanchor": "bottom",
+            "y": 1.02,
+            "xanchor": "left",
+            "x": 0.0,
+            "entrywidth": 150,
+            "entrywidthmode": "pixels",
+            "tracegroupgap": 8,
+        },
+        xaxis={"title": {"text": x_title, "standoff": 50}, "gridcolor": GRID, "zeroline": False},
         yaxis={"title": y_title, "gridcolor": GRID, "zeroline": False},
     )
+    if filters.entity_mode == "game" and filters.time_mode == "raw":
+        _apply_game_time_axis_markers(figure, timeline_df, secondary=True)
     if filters.time_mode == "normalized":
         figure.update_xaxes(range=[0, 1], tickformat=".0%")
     return figure
@@ -332,9 +355,12 @@ def _add_margin_segment_traces(
     figure: go.Figure,
     timeline_df: pd.DataFrame,
     selection: DashboardSelection,
+    record: dict[str, Any],
     x_field: str,
     y_field: str,
     comparison_index: int,
+    *,
+    emphasis: dict[str, float],
 ) -> None:
     if len(timeline_df) == 1:
         figure.add_trace(
@@ -342,8 +368,12 @@ def _add_margin_segment_traces(
                 x=timeline_df[x_field],
                 y=timeline_df[y_field],
                 mode="lines",
-                line={"color": MARGIN_COLORS.get(timeline_df.iloc[0]["margin_bucket"], COMPARISON_COLORS[comparison_index]), "width": 3},
-                name=_legend_label(selection),
+                line={
+                    "color": MARGIN_COLORS.get(timeline_df.iloc[0]["margin_bucket"], COMPARISON_COLORS[comparison_index]),
+                    "width": emphasis["line_width"],
+                },
+                opacity=emphasis["line_opacity"],
+                name=_legend_label(selection, record),
                 legendgroup=selection.selection_id,
                 hoverinfo="skip",
             )
@@ -362,8 +392,9 @@ def _add_margin_segment_traces(
                 x=segment[x_field],
                 y=segment[y_field],
                 mode="lines",
-                line={"color": color, "width": 3, "shape": "hv"},
-                name=_legend_label(selection),
+                line={"color": color, "width": emphasis["line_width"], "shape": "hv"},
+                opacity=emphasis["line_opacity"],
+                name=_legend_label(selection, record),
                 legendgroup=selection.selection_id,
                 showlegend=first_trace,
                 hoverinfo="skip",
@@ -432,6 +463,85 @@ def _axis_fields(entity_mode: str, time_mode: str) -> tuple[str, str, str]:
     )
 
 
+def _apply_game_time_axis_markers(figure: go.Figure, timeline_df: pd.DataFrame, *, secondary: bool = False) -> None:
+    total_minutes = _total_game_minutes(timeline_df)
+    tickvals, ticktext = _game_time_ticks(total_minutes)
+    figure.update_xaxes(
+        range=[0, total_minutes],
+        tickmode="array",
+        tickvals=tickvals,
+        ticktext=ticktext,
+    )
+
+    for boundary, label in _period_end_markers(total_minutes):
+        line_color = "rgba(123,109,93,0.42)" if label not in {"HT", "REG"} else "rgba(123,109,93,0.62)"
+        line_width = 1.0 if label not in {"HT", "REG"} else 1.35
+        figure.add_vline(
+            x=boundary,
+            line={"color": line_color, "dash": "dot", "width": line_width},
+        )
+        figure.add_annotation(
+            x=boundary,
+            y=-0.038 if not secondary else -0.07,
+            xref="x",
+            yref="paper",
+            text=label,
+            showarrow=False,
+            font={
+                "size": 12 if not secondary else 11,
+                "color": TEXT,
+                "family": "Avenir Next Demi Bold, Avenir Next, Trebuchet MS, Helvetica Neue, sans-serif",
+            },
+            xanchor="center",
+            yanchor="top",
+        )
+
+
+def _total_game_minutes(timeline_df: pd.DataFrame) -> float:
+    if timeline_df.empty:
+        return 48.0
+    total_series = pd.to_numeric(timeline_df.get("total_game_minutes"), errors="coerce")
+    if total_series.notna().any():
+        return max(48.0, float(total_series.max()))
+    elapsed_series = pd.to_numeric(timeline_df.get("elapsed_minutes_in_game"), errors="coerce")
+    if not elapsed_series.notna().any():
+        return 48.0
+    elapsed_max = float(elapsed_series.max())
+    if elapsed_max <= 48.0:
+        return 48.0
+    ot_count = int((elapsed_max - 48.0 + 4.999999) // 5.0)
+    return 48.0 + 5.0 * max(1, ot_count)
+
+
+def _game_time_ticks(total_minutes: float) -> tuple[list[float], list[str]]:
+    tickvals = [0.0, 6.0, 12.0, 18.0, 24.0, 30.0, 36.0, 42.0, 48.0]
+    ticktext = ["0", "6", "12", "18", "24", "30", "36", "42", "48"]
+    overtime_index = 1
+    boundary = 53.0
+    while boundary <= total_minutes + 1e-9:
+        tickvals.append(boundary)
+        ticktext.append(str(int(boundary)))
+        overtime_index += 1
+        boundary += 5.0
+    return tickvals, ticktext
+
+
+def _period_end_markers(total_minutes: float) -> list[tuple[float, str]]:
+    markers: list[tuple[float, str]] = [
+        (12.0, "Q1"),
+        (24.0, "HT"),
+        (36.0, "Q3"),
+        (48.0, "REG"),
+    ]
+    overtime_index = 1
+    boundary = 53.0
+    while boundary <= total_minutes + 1e-9:
+        markers.append((boundary, f"OT{overtime_index}"))
+        overtime_index += 1
+        boundary += 5.0
+    return markers
+
+
 def _y_axis_title(entity_mode: str) -> str:
     if entity_mode == "quarter":
         return "Quarter Cumulative Points"
@@ -442,20 +552,39 @@ def _y_axis_title(entity_mode: str) -> str:
     return "Cumulative Points"
 
 
-def _chart_title(filters: DashboardFilters) -> str:
-    title = {
-        "game": "Historic Scoring Trajectories",
-        "quarter": "Best Quarter Scoring Paths",
-        "half": "First- and Second-Half Scoring Paths",
-        "burst": "Burst Scoring Windows",
-    }[filters.entity_mode]
-    if filters.line_color_mode == "margin":
-        title += " with Margin Context"
-    return title
+def _legend_label(selection: DashboardSelection, record: dict[str, Any] | None = None) -> str:
+    short_name = selection.player_name.split()[-1] if selection.player_name.strip() else selection.player_name
+    if record is None:
+        return short_name
+    points_key = {
+        "game": "final_points",
+        "quarter": "quarter_points",
+        "half": "half_points",
+        "burst": "points_in_window",
+    }[selection.entity_mode]
+    points = record.get(points_key)
+    points_suffix = ""
+    if points not in {None, "", "None"} and not pd.isna(points):
+        points_suffix = f" ({int(points)})"
+    if selection.entity_mode == "game":
+        return f"{short_name}{points_suffix}"
+    return f"{short_name} · {selection.label}{points_suffix}"
 
 
-def _legend_label(selection: DashboardSelection) -> str:
-    return f"{selection.player_name} · {selection.label}"
+def _emphasis_style(index: int, has_multiple: bool) -> dict[str, float]:
+    if not has_multiple or index == 0:
+        return {
+            "line_width": 3.4,
+            "line_opacity": 1.0,
+            "marker_size": 10.0,
+            "marker_opacity": 0.98,
+        }
+    return {
+        "line_width": 2.2,
+        "line_opacity": 0.48,
+        "marker_size": 8.0,
+        "marker_opacity": 0.84,
+    }
 
 
 def _hover_customdata(timeline_df: pd.DataFrame, filters: DashboardFilters) -> list[list[Any]]:

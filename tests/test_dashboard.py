@@ -139,9 +139,13 @@ class DashboardTests(unittest.TestCase):
             self.assertIsNotNone(find_component_by_id(app.layout, "comparison-chart"))
             self.assertIsNotNone(find_component_by_id(app.layout, "secondary-analysis-chart"))
             self.assertIsNotNone(find_component_by_id(app.layout, "comparison-tray"))
+            self.assertIsNotNone(find_component_by_id(app.layout, "chart-summary-strip"))
+            self.assertIsNotNone(find_component_by_id(app.layout, "chart-visual-key"))
             self.assertIsNotNone(find_component_by_id(app.layout, "saved-bundle-select"))
             self.assertIsNotNone(find_component_by_id(app.layout, "remove-last-comparison"))
             self.assertIsNotNone(find_component_by_id(app.layout, "detail-panel-content"))
+            table = find_component_by_id(app.layout, "leaderboard-table")
+            self.assertEqual(table.markdown_options, {"html": True})
 
     def test_create_dashboard_app_empty_state_without_outputs(self) -> None:
         with TemporaryDirectory() as tmpdir:
@@ -271,8 +275,11 @@ class DashboardTests(unittest.TestCase):
             column_ids = [column["id"] for column in columns]
             self.assertIn("ts_pct_display", column_ids)
             self.assertIn("offensive_share_display", column_ids)
+            self.assertIn("team_logo_display", column_ids)
+            self.assertIn("opponent_team_logo_display", column_ids)
             self.assertEqual(styles["highlight_column_id"], "offensive_share_display")
             self.assertTrue(any(rule["if"]["column_id"] == "offensive_share_display" for rule in styles["style_header_conditional"]))
+            self.assertIn("/assets/team_logos/", records[0]["team_logo_display"])
 
     def test_build_leaderboard_table_uses_mode_specific_columns(self) -> None:
         with TemporaryDirectory() as tmpdir:
@@ -313,6 +320,73 @@ class DashboardTests(unittest.TestCase):
             self.assertTrue(
                 any(rule.get("if", {}).get("column_id") == "ts_pct_display" for rule in view["leaderboard_styles"]["style_data_conditional"])
             )
+
+    def test_trajectory_figure_shortens_legend_and_deemphasizes_secondary_selection(self) -> None:
+        with TemporaryDirectory() as tmpdir:
+            build_test_outputs(tmpdir)
+            datasets = load_dashboard_datasets(tmpdir)
+            filters = DashboardFilters(entity_mode="game")
+            frame = filter_summary_frame(datasets, filters)
+            records, _, _ = build_leaderboard_table(frame, filters, limit=2)
+            timelines = pd.read_parquet(
+                Path(tmpdir)
+                / "player_scoring_timelines"
+                / "season=2023-24"
+                / "season_type=Regular Season"
+                / "part-game-123.parquet"
+            )
+            figure = build_trajectory_figure(records, timelines, filters)
+            self.assertIsNone(figure.layout.title.text)
+            self.assertNotIn("Full Game", figure.data[0].name)
+            self.assertEqual(figure.data[0].opacity, 1.0)
+            self.assertLess(float(figure.data[2].opacity), 1.0)
+
+    def test_game_time_axis_marks_quarter_and_regulation_boundaries(self) -> None:
+        with TemporaryDirectory() as tmpdir:
+            build_test_outputs(tmpdir)
+            datasets = load_dashboard_datasets(tmpdir)
+            filters = DashboardFilters(entity_mode="game")
+            frame = filter_summary_frame(datasets, filters)
+            records, _, _ = build_leaderboard_table(frame, filters, limit=1)
+            timelines = pd.read_parquet(
+                Path(tmpdir)
+                / "player_scoring_timelines"
+                / "season=2023-24"
+                / "season_type=Regular Season"
+                / "part-game-123.parquet"
+            )
+            figure = build_trajectory_figure(records, timelines, filters)
+            self.assertEqual(list(figure.layout.xaxis.tickvals), [0.0, 6.0, 12.0, 18.0, 24.0, 30.0, 36.0, 42.0, 48.0])
+            self.assertEqual(list(figure.layout.xaxis.ticktext), ["0", "6", "12", "18", "24", "30", "36", "42", "48"])
+            self.assertEqual(float(figure.layout.xaxis.range[1]), 48.0)
+            self.assertEqual(len(figure.layout.shapes), 4)
+            annotation_texts = [annotation.text for annotation in figure.layout.annotations]
+            self.assertIn("Q1", annotation_texts)
+            self.assertIn("HT", annotation_texts)
+            self.assertIn("Q3", annotation_texts)
+            self.assertIn("REG", annotation_texts)
+
+    def test_game_time_axis_includes_overtime_boundary_when_present(self) -> None:
+        with TemporaryDirectory() as tmpdir:
+            build_test_outputs(tmpdir)
+            datasets = load_dashboard_datasets(tmpdir)
+            filters = DashboardFilters(entity_mode="game")
+            frame = filter_summary_frame(datasets, filters)
+            records, _, _ = build_leaderboard_table(frame, filters, limit=1)
+            timelines = pd.read_parquet(
+                Path(tmpdir)
+                / "player_scoring_timelines"
+                / "season=2023-24"
+                / "season_type=Regular Season"
+                / "part-game-123.parquet"
+            ).copy()
+            timelines["total_game_minutes"] = 53.0
+            figure = build_trajectory_figure(records, timelines, filters)
+            self.assertIn(53.0, list(figure.layout.xaxis.tickvals))
+            self.assertIn("53", list(figure.layout.xaxis.ticktext))
+            self.assertEqual(float(figure.layout.xaxis.range[1]), 53.0)
+            annotation_texts = [annotation.text for annotation in figure.layout.annotations]
+            self.assertIn("OT1", annotation_texts)
 
 
 if __name__ == "__main__":
