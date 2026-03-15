@@ -227,16 +227,80 @@ class PipelineTests(unittest.TestCase):
             ]
         )
 
-        class FakeEndpoint:
-            def get_data_frames(self) -> list[pd.DataFrame]:
-                return [mocked_logs]
-
-        with patch("nba_scoring_per_game.source.leaguegamelog.LeagueGameLog", return_value=FakeEndpoint()):
+        with patch("nba_scoring_per_game.source._fetch_league_game_log", return_value=mocked_logs):
             manifest = fetch_game_manifest("2023-24")
 
         self.assertEqual(len(manifest), 1)
         self.assertEqual(manifest.iloc[0]["home_team_id"], 1)
         self.assertEqual(manifest.iloc[0]["away_team_id"], 2)
+
+    def test_fetch_game_manifest_supports_min_player_points_prefilter(self) -> None:
+        team_logs = pd.DataFrame(
+            [
+                {
+                    "SEASON_ID": "22023",
+                    "TEAM_ID": 1,
+                    "TEAM_ABBREVIATION": "HOM",
+                    "TEAM_NAME": "Home",
+                    "GAME_ID": "game-123",
+                    "GAME_DATE": "2024-01-01",
+                    "MATCHUP": "HOM vs. AWY",
+                    "WL": "W",
+                },
+                {
+                    "SEASON_ID": "22023",
+                    "TEAM_ID": 2,
+                    "TEAM_ABBREVIATION": "AWY",
+                    "TEAM_NAME": "Away",
+                    "GAME_ID": "game-123",
+                    "GAME_DATE": "2024-01-01",
+                    "MATCHUP": "AWY @ HOM",
+                    "WL": "L",
+                },
+                {
+                    "SEASON_ID": "22023",
+                    "TEAM_ID": 3,
+                    "TEAM_ABBREVIATION": "ALT",
+                    "TEAM_NAME": "Alt Home",
+                    "GAME_ID": "game-456",
+                    "GAME_DATE": "2024-01-02",
+                    "MATCHUP": "ALT vs. XYZ",
+                    "WL": "W",
+                },
+                {
+                    "SEASON_ID": "22023",
+                    "TEAM_ID": 4,
+                    "TEAM_ABBREVIATION": "XYZ",
+                    "TEAM_NAME": "Alt Away",
+                    "GAME_ID": "game-456",
+                    "GAME_DATE": "2024-01-02",
+                    "MATCHUP": "XYZ @ ALT",
+                    "WL": "L",
+                },
+            ]
+        )
+        player_logs = pd.DataFrame(
+            [
+                {"GAME_ID": "game-123", "PLAYER_NAME": "Scorer A", "PTS": 19},
+                {"GAME_ID": "game-123", "PLAYER_NAME": "Scorer B", "PTS": 18},
+                {"GAME_ID": "game-456", "PLAYER_NAME": "Scorer C", "PTS": 31},
+            ]
+        )
+
+        def fake_fetch(*, season: str, season_type: str, player_or_team_abbreviation: str) -> pd.DataFrame:
+            self.assertEqual(season, "2023-24")
+            self.assertEqual(season_type, "Regular Season")
+            if player_or_team_abbreviation == "T":
+                return team_logs
+            if player_or_team_abbreviation == "P":
+                return player_logs
+            raise AssertionError(f"Unexpected player/team flag: {player_or_team_abbreviation}")
+
+        with patch("nba_scoring_per_game.source._fetch_league_game_log", side_effect=fake_fetch):
+            manifest = fetch_game_manifest("2023-24", min_player_points=20)
+
+        self.assertEqual(len(manifest), 1)
+        self.assertEqual(manifest.iloc[0]["game_id"], "game-456")
 
 
 if __name__ == "__main__":

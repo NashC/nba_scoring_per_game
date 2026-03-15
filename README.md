@@ -99,6 +99,16 @@ Backfill one season:
   --out-dir data
 ```
 
+Backfill only games where at least one player reached a point threshold:
+
+```bash
+.venv/bin/nba-scoring-per-game backfill-season \
+  --season 2023-24 \
+  --season-type "Regular Season" \
+  --min-player-points 30 \
+  --out-dir data
+```
+
 Query top high-scoring games:
 
 ```bash

@@ -79,13 +79,21 @@ def fetch_boxscore_player_totals(game_id: str) -> pd.DataFrame:
     return renamed[BOX_SCORE_COLUMNS].copy()
 
 
-def fetch_game_manifest(season: str, season_type: str = "Regular Season") -> pd.DataFrame:
-    """Build a season game manifest from official NBA team game logs."""
-    team_logs = leaguegamelog.LeagueGameLog(
+def fetch_game_manifest(
+    season: str,
+    season_type: str = "Regular Season",
+    min_player_points: int | None = None,
+) -> pd.DataFrame:
+    """Build a season game manifest from official NBA team game logs.
+
+    When ``min_player_points`` is provided, only games with at least one player-game
+    at or above that official box score point total are returned.
+    """
+    team_logs = _fetch_league_game_log(
         season=season,
-        season_type_all_star=season_type,
+        season_type=season_type,
         player_or_team_abbreviation="T",
-    ).get_data_frames()[0].copy()
+    )
     if team_logs.empty:
         raise ValueError(f"No game logs returned for season={season} season_type={season_type}")
 
@@ -126,7 +134,58 @@ def fetch_game_manifest(season: str, season_type: str = "Regular Season") -> pd.
             f"Sample rows:\n{sample.to_string(index=False)}"
         )
 
-    return manifest
+    if min_player_points is None:
+        return manifest
+
+    threshold = _normalize_min_player_points(min_player_points)
+    player_logs = _fetch_league_game_log(
+        season=season,
+        season_type=season_type,
+        player_or_team_abbreviation="P",
+    )
+    if player_logs.empty:
+        raise ValueError(
+            "No player game logs returned for threshold filtering "
+            f"season={season} season_type={season_type}"
+        )
+    if "PTS" not in player_logs.columns or "GAME_ID" not in player_logs.columns:
+        raise ValueError("Player game logs are missing required GAME_ID/PTS columns for threshold filtering.")
+
+    qualifying_game_ids = (
+        player_logs.loc[pd.to_numeric(player_logs["PTS"], errors="coerce").ge(threshold), "GAME_ID"]
+        .astype(str)
+        .dropna()
+        .unique()
+        .tolist()
+    )
+    if not qualifying_game_ids:
+        return manifest.iloc[0:0].copy()
+
+    filtered_manifest = manifest.loc[manifest["game_id"].astype(str).isin(qualifying_game_ids)].copy()
+    return filtered_manifest.sort_values(["game_date", "game_id"]).reset_index(drop=True)
+
+
+def _fetch_league_game_log(
+    *,
+    season: str,
+    season_type: str,
+    player_or_team_abbreviation: str,
+) -> pd.DataFrame:
+    return leaguegamelog.LeagueGameLog(
+        season=season,
+        season_type_all_star=season_type,
+        player_or_team_abbreviation=player_or_team_abbreviation,
+    ).get_data_frames()[0].copy()
+
+
+def _normalize_min_player_points(value: int | None) -> int:
+    try:
+        threshold = int(value) if value is not None else None
+    except (TypeError, ValueError) as exc:
+        raise ValueError(f"Invalid min_player_points value: {value}") from exc
+    if threshold is None or threshold < 0:
+        raise ValueError(f"min_player_points must be a non-negative integer. Got: {value}")
+    return threshold
 
 
 def _parse_minutes_to_float(value: object) -> float | None:

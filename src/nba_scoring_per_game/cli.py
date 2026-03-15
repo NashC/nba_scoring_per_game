@@ -39,6 +39,7 @@ def main() -> None:
     backfill_parser = subparsers.add_parser("backfill-season", help="Backfill one season")
     backfill_parser.add_argument("--season", required=True)
     backfill_parser.add_argument("--season-type", default="Regular Season")
+    backfill_parser.add_argument("--min-player-points", type=int)
     backfill_parser.add_argument("--out-dir", default="data")
     backfill_parser.add_argument("--write-mode", default="skip_existing")
     backfill_parser.add_argument("--fail-fast", default="false")
@@ -103,7 +104,20 @@ def main() -> None:
         return
 
     if args.command == "backfill-season":
-        manifest = fetch_game_manifest(args.season, args.season_type)
+        manifest = fetch_game_manifest(
+            args.season,
+            args.season_type,
+            min_player_points=args.min_player_points,
+        )
+        if manifest.empty:
+            if args.min_player_points is None:
+                print("No games matched the requested season manifest.")
+            else:
+                print(
+                    "No games matched the requested season manifest after applying "
+                    f"--min-player-points {args.min_player_points}."
+                )
+            return
         processing_manifest = build_dataset(
             manifest,
             out_dir=Path(args.out_dir),
