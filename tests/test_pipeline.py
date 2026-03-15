@@ -1,0 +1,305 @@
+from __future__ import annotations
+
+from pathlib import Path
+from tempfile import TemporaryDirectory
+import unittest
+from unittest.mock import patch
+
+import pandas as pd
+
+from nba_scoring_per_game.pipeline import build_dataset, load_dataset, process_game, query_player_games
+from nba_scoring_per_game.source import fetch_game_manifest
+
+
+def make_manifest_row() -> dict[str, object]:
+    return {
+        "season": "2023-24",
+        "season_type": "Regular Season",
+        "game_id": "game-123",
+        "game_date": "2024-01-01",
+        "home_team_id": 1,
+        "away_team_id": 2,
+        "home_team_tricode": "HOM",
+        "away_team_tricode": "AWY",
+    }
+
+
+def make_raw_playbyplay() -> pd.DataFrame:
+    return pd.DataFrame(
+        [
+            {
+                "gameId": "game-123",
+                "actionNumber": 0,
+                "actionId": 1,
+                "teamId": 0,
+                "teamTricode": "",
+                "personId": 0,
+                "playerName": "",
+                "period": 1,
+                "clock": "PT12M00.00S",
+                "isFieldGoal": 0,
+                "scoreHome": 0,
+                "scoreAway": 0,
+                "pointsTotal": 0,
+                "location": "",
+                "description": "Start of 1st Period",
+                "actionType": "period",
+                "subType": "start",
+            },
+            {
+                "gameId": "game-123",
+                "actionNumber": 1,
+                "actionId": 10,
+                "teamId": 1,
+                "teamTricode": "HOM",
+                "personId": 100,
+                "playerName": "Home Scorer",
+                "period": 1,
+                "clock": "PT11M30.00S",
+                "isFieldGoal": 1,
+                "scoreHome": 2,
+                "scoreAway": 0,
+                "pointsTotal": 2,
+                "location": "h",
+                "description": "Home Scorer Jump Shot (2 PTS)",
+                "actionType": "Made Shot",
+                "subType": "Jump Shot",
+            },
+            {
+                "gameId": "game-123",
+                "actionNumber": 2,
+                "actionId": 11,
+                "teamId": 2,
+                "teamTricode": "AWY",
+                "personId": 200,
+                "playerName": "Away Scorer",
+                "period": 1,
+                "clock": "PT11M00.00S",
+                "isFieldGoal": 1,
+                "scoreHome": 2,
+                "scoreAway": 3,
+                "pointsTotal": 5,
+                "location": "v",
+                "description": "Away Scorer 3PT Jump Shot (3 PTS)",
+                "actionType": "Made Shot",
+                "subType": "Jump Shot",
+            },
+            {
+                "gameId": "game-123",
+                "actionNumber": 3,
+                "actionId": 12,
+                "teamId": 1,
+                "teamTricode": "HOM",
+                "personId": 100,
+                "playerName": "Home Scorer",
+                "period": 2,
+                "clock": "PT10M00.00S",
+                "isFieldGoal": 0,
+                "scoreHome": 3,
+                "scoreAway": 3,
+                "pointsTotal": 6,
+                "location": "h",
+                "description": "Home Scorer Free Throw 1 of 1 (3 PTS)",
+                "actionType": "Free Throw",
+                "subType": "Free Throw 1 of 1",
+            },
+            {
+                "gameId": "game-123",
+                "actionNumber": 4,
+                "actionId": 13,
+                "teamId": 2,
+                "teamTricode": "AWY",
+                "personId": 200,
+                "playerName": "Away Scorer",
+                "period": 4,
+                "clock": "PT00M10.00S",
+                "isFieldGoal": 1,
+                "scoreHome": 3,
+                "scoreAway": 5,
+                "pointsTotal": 8,
+                "location": "v",
+                "description": "Away Scorer Layup (5 PTS)",
+                "actionType": "Made Shot",
+                "subType": "Layup Shot",
+            },
+        ]
+    )
+
+
+def make_boxscore_totals() -> pd.DataFrame:
+    return pd.DataFrame(
+        [
+            {
+                "game_id": "game-123",
+                "team_id": 1,
+                "team_tricode": "HOM",
+                "player_id": 100,
+                "player_name_boxscore": "Home Scorer",
+                "official_points": 3,
+            },
+            {
+                "game_id": "game-123",
+                "team_id": 2,
+                "team_tricode": "AWY",
+                "player_id": 200,
+                "player_name_boxscore": "Away Scorer",
+                "official_points": 5,
+            },
+        ]
+    )
+
+
+class PipelineTests(unittest.TestCase):
+    def test_process_game_writes_curated_outputs(self) -> None:
+        manifest_row = make_manifest_row()
+        with TemporaryDirectory() as tmpdir:
+            with patch("nba_scoring_per_game.pipeline.fetch_playbyplay", return_value=make_raw_playbyplay()), patch(
+                "nba_scoring_per_game.pipeline.fetch_boxscore_player_totals",
+                return_value=make_boxscore_totals(),
+            ):
+                artifact = process_game(manifest_row, out_dir=tmpdir, write_mode="overwrite", raw_cache=True)
+
+            self.assertEqual(artifact.status, "success")
+            self.assertTrue(artifact.validation_report["validation_passed"])
+
+            base = Path(tmpdir)
+            raw_scoring = load_dataset(base / "raw_scoring_events")
+            timelines = load_dataset(base / "player_scoring_timelines")
+            summaries = load_dataset(base / "player_game_summaries")
+            self.assertEqual(len(raw_scoring), 4)
+            self.assertEqual(len(timelines), 4)
+            self.assertEqual(len(summaries), 2)
+            self.assertTrue((base / "validation_reports").exists())
+
+    def test_build_dataset_skips_existing_after_success(self) -> None:
+        manifest_df = pd.DataFrame([make_manifest_row()])
+        with TemporaryDirectory() as tmpdir:
+            with patch("nba_scoring_per_game.pipeline.fetch_playbyplay", return_value=make_raw_playbyplay()), patch(
+                "nba_scoring_per_game.pipeline.fetch_boxscore_player_totals",
+                return_value=make_boxscore_totals(),
+            ):
+                first_manifest = build_dataset(manifest_df, out_dir=tmpdir, write_mode="overwrite", raw_cache=False)
+                second_manifest = build_dataset(manifest_df, out_dir=tmpdir, write_mode="skip_existing", raw_cache=False)
+
+            self.assertEqual(first_manifest.iloc[0]["status"], "success")
+            self.assertTrue(bool(second_manifest.iloc[0]["skipped_existing"]))
+            self.assertEqual(second_manifest.iloc[0]["status"], "success")
+
+    def test_build_dataset_records_validation_failure_without_curated_outputs(self) -> None:
+        manifest_df = pd.DataFrame([make_manifest_row()])
+        bad_boxscore = make_boxscore_totals().copy()
+        bad_boxscore.loc[bad_boxscore["player_id"].eq(100), "official_points"] = 99
+
+        with TemporaryDirectory() as tmpdir:
+            with patch("nba_scoring_per_game.pipeline.fetch_playbyplay", return_value=make_raw_playbyplay()), patch(
+                "nba_scoring_per_game.pipeline.fetch_boxscore_player_totals",
+                return_value=bad_boxscore,
+            ):
+                processing_manifest = build_dataset(manifest_df, out_dir=tmpdir, write_mode="overwrite", raw_cache=False)
+
+            self.assertEqual(processing_manifest.iloc[0]["status"], "validation_error")
+            self.assertFalse(bool(processing_manifest.iloc[0]["validation_passed"]))
+            self.assertTrue(load_dataset(Path(tmpdir) / "raw_scoring_events").empty)
+
+    def test_query_player_games_filters_and_sorts(self) -> None:
+        summary_df = pd.DataFrame(
+            [
+                {
+                    "season": "2023-24",
+                    "season_type": "Regular Season",
+                    "game_date": "2024-01-01",
+                    "game_id": "g1",
+                    "player_id": 1,
+                    "player_name": "A",
+                    "team_id": 10,
+                    "team_tricode": "AAA",
+                    "final_points": 70,
+                    "num_scoring_events": 30,
+                    "max_cumulative_points": 70,
+                    "final_player_team_margin": 5,
+                    "avg_margin_during_scoring_events": 1.0,
+                    "median_margin_during_scoring_events": 1.0,
+                    "avg_abs_margin_during_scoring_events": 4.0,
+                    "median_abs_margin_during_scoring_events": 4.0,
+                    "pct_scoring_events_within_3": 0.5,
+                    "pct_scoring_events_within_5": 0.8,
+                    "pct_scoring_events_within_10": 0.9,
+                    "max_lead_during_scoring_events": 10,
+                    "max_deficit_during_scoring_events": 3,
+                },
+                {
+                    "season": "2023-24",
+                    "season_type": "Regular Season",
+                    "game_date": "2024-01-02",
+                    "game_id": "g2",
+                    "player_id": 2,
+                    "player_name": "B",
+                    "team_id": 20,
+                    "team_tricode": "BBB",
+                    "final_points": 60,
+                    "num_scoring_events": 25,
+                    "max_cumulative_points": 60,
+                    "final_player_team_margin": -1,
+                    "avg_margin_during_scoring_events": -1.0,
+                    "median_margin_during_scoring_events": -1.0,
+                    "avg_abs_margin_during_scoring_events": 8.0,
+                    "median_abs_margin_during_scoring_events": 8.0,
+                    "pct_scoring_events_within_3": 0.2,
+                    "pct_scoring_events_within_5": 0.4,
+                    "pct_scoring_events_within_10": 0.7,
+                    "max_lead_during_scoring_events": 2,
+                    "max_deficit_during_scoring_events": 12,
+                },
+            ]
+        )
+
+        result = query_player_games(
+            summary_df,
+            min_points=65,
+            max_avg_abs_margin=5.0,
+            min_pct_within_10=0.8,
+            sort_by="avg_abs_margin_during_scoring_events",
+            ascending=True,
+        )
+        self.assertEqual(result["game_id"].tolist(), ["g1"])
+
+    def test_fetch_game_manifest_pairs_home_and_away_rows(self) -> None:
+        mocked_logs = pd.DataFrame(
+            [
+                {
+                    "SEASON_ID": "22023",
+                    "TEAM_ID": 1,
+                    "TEAM_ABBREVIATION": "HOM",
+                    "TEAM_NAME": "Home",
+                    "GAME_ID": "game-123",
+                    "GAME_DATE": "2024-01-01",
+                    "MATCHUP": "HOM vs. AWY",
+                    "WL": "W",
+                },
+                {
+                    "SEASON_ID": "22023",
+                    "TEAM_ID": 2,
+                    "TEAM_ABBREVIATION": "AWY",
+                    "TEAM_NAME": "Away",
+                    "GAME_ID": "game-123",
+                    "GAME_DATE": "2024-01-01",
+                    "MATCHUP": "AWY @ HOM",
+                    "WL": "L",
+                },
+            ]
+        )
+
+        class FakeEndpoint:
+            def get_data_frames(self) -> list[pd.DataFrame]:
+                return [mocked_logs]
+
+        with patch("nba_scoring_per_game.source.leaguegamelog.LeagueGameLog", return_value=FakeEndpoint()):
+            manifest = fetch_game_manifest("2023-24")
+
+        self.assertEqual(len(manifest), 1)
+        self.assertEqual(manifest.iloc[0]["home_team_id"], 1)
+        self.assertEqual(manifest.iloc[0]["away_team_id"], 2)
+
+
+if __name__ == "__main__":
+    unittest.main()
