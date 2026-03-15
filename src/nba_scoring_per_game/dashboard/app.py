@@ -7,7 +7,7 @@ import pandas as pd
 from dash import ALL, Dash, Input, Output, State, ctx, dcc, no_update
 
 from .charts import build_empty_figure, build_secondary_analysis_figure, build_trajectory_figure
-from .layout import build_comparison_tray, build_dashboard_layout, build_enriched_detail_cards
+from .layout import build_comparison_tray, build_dashboard_layout, build_enriched_detail_cards, build_quick_view_bar
 from .loader import DashboardDatasets, load_dashboard_datasets, load_selected_timelines
 from .state import (
     DashboardFilters,
@@ -18,9 +18,13 @@ from .state import (
     encode_dashboard_state,
     filter_summary_frame,
     filter_values_from_filters,
+    get_preset_label,
     get_ranking_options,
     normalize_filters,
+    normalize_saved_bundles,
+    saved_bundles_payload,
     select_records,
+    serialize_saved_bundle,
 )
 
 
@@ -49,18 +53,23 @@ def render_dashboard_view(
     selected_row_ids: list[str] | None,
 ) -> dict[str, Any]:
     summary_df = filter_summary_frame(datasets, filters)
-    records, columns = build_leaderboard_table(summary_df, filters)
+    records, columns, styles = build_leaderboard_table(summary_df, filters)
 
     if not records:
+        empty_message = _empty_filter_message(filters)
         return {
             "records": [],
             "columns": columns,
+            "leaderboard_styles": styles,
             "selected_ids": [],
-            "figure": build_empty_figure("No performances matched the current filters."),
-            "primary_figure": build_empty_figure("No performances matched the current filters."),
-            "secondary_figure": build_empty_figure("No secondary analysis is available for the current filters.", height=320),
+            "figure": build_empty_figure(empty_message),
+            "primary_figure": build_empty_figure(empty_message),
+            "secondary_figure": build_empty_figure(
+                "Adjust the filters or open a quick view to restore secondary analysis.",
+                height=320,
+            ),
             "details": build_enriched_detail_cards([], filters.entity_mode, pd.DataFrame()),
-            "status": "No performances matched the current filters.",
+            "status": empty_message,
             "comparison_tray": build_comparison_tray([]),
             "secondary_title": _secondary_title(filters),
             "secondary_note": _secondary_note(filters),
@@ -87,6 +96,7 @@ def render_dashboard_view(
     return {
         "records": records,
         "columns": columns,
+        "leaderboard_styles": styles,
         "selected_ids": selected_ids,
         "figure": primary_figure,
         "primary_figure": primary_figure,
@@ -158,6 +168,24 @@ def _register_callbacks(app: Dash, datasets: DashboardDatasets, out_dir: Path) -
         )
 
     @app.callback(
+        Output("preset-filter", "value", allow_duplicate=True),
+        Input({"type": "quick-view-button", "preset": ALL}, "n_clicks"),
+        prevent_initial_call=True,
+    )
+    def _apply_quick_view(_clicks: list[int] | None):
+        triggered = ctx.triggered_id
+        if isinstance(triggered, dict) and triggered.get("type") == "quick-view-button":
+            return triggered.get("preset")
+        return no_update
+
+    @app.callback(
+        Output("quick-view-bar", "children"),
+        Input("preset-filter", "value"),
+    )
+    def _update_quick_view_bar(preset: str | None):
+        return build_quick_view_bar(preset)
+
+    @app.callback(
         Output("entity-mode", "value", allow_duplicate=True),
         Output("ranking-metric", "value", allow_duplicate=True),
         Output("time-mode", "value", allow_duplicate=True),
@@ -178,10 +206,14 @@ def _register_callbacks(app: Dash, datasets: DashboardDatasets, out_dir: Path) -
         Output("season-type-filter", "value", allow_duplicate=True),
         Output("era-filter", "value", allow_duplicate=True),
         Input("preset-filter", "value"),
+        State("dashboard-location", "search"),
         prevent_initial_call=True,
     )
-    def _apply_preset_value(preset: str | None):
+    def _apply_preset_value(preset: str | None, current_search: str | None):
         if not preset:
+            return (no_update,) * 19
+        current_state = decode_dashboard_state(current_search)
+        if current_state["filters"].preset == preset:
             return (no_update,) * 19
         filters = apply_dashboard_preset(preset)
         return (
@@ -205,6 +237,152 @@ def _register_callbacks(app: Dash, datasets: DashboardDatasets, out_dir: Path) -
             None,
             None,
         )
+
+    @app.callback(
+        Output("saved-bundle-select", "options"),
+        Output("saved-bundle-select", "value"),
+        Input("saved-bundles", "data"),
+        State("saved-bundle-select", "value"),
+    )
+    def _sync_saved_bundle_options(saved_bundles: Any, current_value: str | None):
+        bundles = normalize_saved_bundles(saved_bundles)
+        options = [{"label": bundle.name, "value": bundle.id} for bundle in bundles]
+        valid_ids = {bundle.id for bundle in bundles}
+        if current_value in valid_ids:
+            value = current_value
+        else:
+            value = bundles[0].id if bundles else None
+        return options, value
+
+    @app.callback(
+        Output("saved-bundles", "data"),
+        Output("bundle-status", "children"),
+        Output("bundle-name", "value"),
+        Input("save-bundle", "n_clicks"),
+        Input("delete-bundle", "n_clicks"),
+        State("saved-bundles", "data"),
+        State("bundle-name", "value"),
+        State("saved-bundle-select", "value"),
+        State("entity-mode", "value"),
+        State("ranking-metric", "value"),
+        State("time-mode", "value"),
+        State("burst-window", "value"),
+        State("analysis-mode", "value"),
+        State("analysis-window", "value"),
+        State("line-color-mode", "value"),
+        State("shot-markers", "value"),
+        State("include-ot", "value"),
+        State("competitive-only", "value"),
+        State("min-points", "value"),
+        State("min-competitive-share", "value"),
+        State("min-ts-pct", "value"),
+        State("min-efg-pct", "value"),
+        State("min-offensive-share", "value"),
+        State("player-filter", "value"),
+        State("team-filter", "value"),
+        State("opponent-filter", "value"),
+        State("season-filter", "value"),
+        State("season-type-filter", "value"),
+        State("era-filter", "value"),
+        State("preset-filter", "value"),
+        State("leaderboard-table", "selected_row_ids"),
+        prevent_initial_call=True,
+    )
+    def _manage_saved_bundles(
+        save_clicks: int,
+        delete_clicks: int,
+        saved_bundles: Any,
+        bundle_name: str | None,
+        selected_bundle_id: str | None,
+        entity_mode: str,
+        ranking_metric: str,
+        time_mode: str,
+        burst_window: int,
+        analysis_mode: str,
+        analysis_window: int,
+        line_color_mode: str,
+        shot_markers: list[str] | None,
+        include_ot: list[str] | None,
+        competitive_only: list[str] | None,
+        min_points: Any,
+        min_competitive_share: Any,
+        min_ts_pct: Any,
+        min_efg_pct: Any,
+        min_offensive_share: Any,
+        player: str | None,
+        team: str | None,
+        opponent: str | None,
+        season: str | None,
+        season_type: str | None,
+        era: str | None,
+        preset: str | None,
+        selected_row_ids: list[str] | None,
+    ):
+        bundles = normalize_saved_bundles(saved_bundles)
+        triggered = ctx.triggered_id
+        if triggered == "save-bundle":
+            clean_name = str(bundle_name or "").strip()
+            if not selected_row_ids:
+                return no_update, "Select at least one comparison before saving a bundle.", no_update
+            if not clean_name:
+                return no_update, "Enter a bundle name before saving.", no_update
+            filters = _build_filters_from_inputs(
+                entity_mode=entity_mode,
+                ranking_metric=ranking_metric,
+                time_mode=time_mode,
+                burst_window=burst_window,
+                analysis_mode=analysis_mode,
+                analysis_window=analysis_window,
+                line_color_mode=line_color_mode,
+                shot_markers=shot_markers,
+                include_ot=include_ot,
+                competitive_only=competitive_only,
+                min_points=min_points,
+                min_competitive_share=min_competitive_share,
+                min_ts_pct=min_ts_pct,
+                min_efg_pct=min_efg_pct,
+                min_offensive_share=min_offensive_share,
+                player=player,
+                team=team,
+                opponent=opponent,
+                season=season,
+                season_type=season_type,
+                era=era,
+                preset=preset,
+            )
+            new_bundle = serialize_saved_bundle(clean_name, filters, list(selected_row_ids or []))
+            bundles = [bundle for bundle in bundles if bundle.name.lower() != clean_name.lower()]
+            bundles.insert(0, new_bundle)
+            bundles = bundles[:12]
+            return saved_bundles_payload(bundles), f'Saved bundle "{clean_name}".', ""
+        if triggered == "delete-bundle":
+            if not selected_bundle_id:
+                return no_update, "Choose a saved bundle to delete.", no_update
+            remaining = [bundle for bundle in bundles if bundle.id != selected_bundle_id]
+            if len(remaining) == len(bundles):
+                return no_update, "Saved bundle was not found.", no_update
+            return saved_bundles_payload(remaining), "Deleted saved bundle.", no_update
+        return no_update, no_update, no_update
+
+    @app.callback(
+        Output("dashboard-location", "search", allow_duplicate=True),
+        Input("load-bundle", "n_clicks"),
+        State("saved-bundle-select", "value"),
+        State("saved-bundles", "data"),
+        prevent_initial_call=True,
+    )
+    def _load_saved_bundle(
+        load_clicks: int,
+        selected_bundle_id: str | None,
+        saved_bundles: Any,
+    ):
+        if not load_clicks or not selected_bundle_id:
+            return no_update
+        bundles = normalize_saved_bundles(saved_bundles)
+        for bundle in bundles:
+            if bundle.id == selected_bundle_id:
+                return bundle.search
+        return no_update
 
     @app.callback(
         Output("ranking-metric", "options"),
@@ -257,12 +435,14 @@ def _register_callbacks(app: Dash, datasets: DashboardDatasets, out_dir: Path) -
     @app.callback(
         Output("leaderboard-table", "selected_row_ids", allow_duplicate=True),
         Input("clear-comparisons", "n_clicks"),
+        Input("remove-last-comparison", "n_clicks"),
         Input({"type": "comparison-remove", "selection_id": ALL}, "n_clicks"),
         State("leaderboard-table", "selected_row_ids"),
         prevent_initial_call=True,
     )
     def _update_selection_from_tray(
         clear_clicks: int,
+        remove_last_clicks: int,
         remove_clicks: list[int] | None,
         selected_row_ids: list[str] | None,
     ):
@@ -270,6 +450,8 @@ def _register_callbacks(app: Dash, datasets: DashboardDatasets, out_dir: Path) -
         triggered = ctx.triggered_id
         if triggered == "clear-comparisons":
             return []
+        if triggered == "remove-last-comparison":
+            return current_ids[:-1]
         if isinstance(triggered, dict) and triggered.get("type") == "comparison-remove":
             target_id = triggered.get("selection_id")
             return [selection_id for selection_id in current_ids if selection_id != target_id]
@@ -278,6 +460,9 @@ def _register_callbacks(app: Dash, datasets: DashboardDatasets, out_dir: Path) -
     @app.callback(
         Output("leaderboard-table", "data"),
         Output("leaderboard-table", "columns"),
+        Output("leaderboard-table", "style_header_conditional"),
+        Output("leaderboard-table", "style_data_conditional"),
+        Output("leaderboard-table", "style_cell_conditional"),
         Output("leaderboard-table", "selected_row_ids"),
         Output("comparison-chart", "figure"),
         Output("secondary-analysis-chart", "figure"),
@@ -337,7 +522,7 @@ def _register_callbacks(app: Dash, datasets: DashboardDatasets, out_dir: Path) -
         url_selected_ids: list[str] | None,
         selected_row_ids: list[str] | None,
     ):
-        filters = normalize_filters(
+        filters = _build_filters_from_inputs(
             entity_mode=entity_mode,
             ranking_metric=ranking_metric,
             time_mode=time_mode,
@@ -345,9 +530,9 @@ def _register_callbacks(app: Dash, datasets: DashboardDatasets, out_dir: Path) -
             analysis_mode=analysis_mode,
             analysis_window=analysis_window,
             line_color_mode=line_color_mode,
-            show_shot_markers="markers" in (shot_markers or []),
-            include_ot="include" in (include_ot or []),
-            competitive_only="competitive" in (competitive_only or []),
+            shot_markers=shot_markers,
+            include_ot=include_ot,
+            competitive_only=competitive_only,
             min_points=min_points,
             min_competitive_share=min_competitive_share,
             min_ts_pct=min_ts_pct,
@@ -370,6 +555,9 @@ def _register_callbacks(app: Dash, datasets: DashboardDatasets, out_dir: Path) -
         return (
             view["records"],
             view["columns"],
+            view["leaderboard_styles"]["style_header_conditional"],
+            view["leaderboard_styles"]["style_data_conditional"],
+            view["leaderboard_styles"]["style_cell_conditional"],
             view["selected_ids"],
             view["primary_figure"],
             view["secondary_figure"],
@@ -433,7 +621,7 @@ def _register_callbacks(app: Dash, datasets: DashboardDatasets, out_dir: Path) -
         selected_row_ids: list[str] | None,
         current_search: str | None,
     ):
-        filters = normalize_filters(
+        filters = _build_filters_from_inputs(
             entity_mode=entity_mode,
             ranking_metric=ranking_metric,
             time_mode=time_mode,
@@ -441,9 +629,9 @@ def _register_callbacks(app: Dash, datasets: DashboardDatasets, out_dir: Path) -
             analysis_mode=analysis_mode,
             analysis_window=analysis_window,
             line_color_mode=line_color_mode,
-            show_shot_markers="markers" in (shot_markers or []),
-            include_ot="include" in (include_ot or []),
-            competitive_only="competitive" in (competitive_only or []),
+            shot_markers=shot_markers,
+            include_ot=include_ot,
+            competitive_only=competitive_only,
             min_points=min_points,
             min_competitive_share=min_competitive_share,
             min_ts_pct=min_ts_pct,
@@ -466,31 +654,22 @@ def _register_callbacks(app: Dash, datasets: DashboardDatasets, out_dir: Path) -
         Output("leaderboard-download", "data"),
         Input("export-leaderboard", "n_clicks"),
         State("leaderboard-table", "data"),
+        State("leaderboard-table", "columns"),
         prevent_initial_call=True,
     )
-    def _download_leaderboard_csv(n_clicks: int, rows: list[dict[str, Any]] | None):
-        if not n_clicks or not rows:
+    def _download_leaderboard_csv(
+        n_clicks: int,
+        rows: list[dict[str, Any]] | None,
+        columns: list[dict[str, Any]] | None,
+    ):
+        if not n_clicks or not rows or not columns:
             return no_update
         frame = pd.DataFrame(rows)
         if frame.empty:
             return no_update
-        export_columns = [
-            column
-            for column in [
-                "rank",
-                "player_name",
-                "team_tricode",
-                "opponent_team_tricode",
-                "date_label",
-                "era_label",
-                "entity_label",
-                "primary_points",
-                "rate_value",
-                "competitive_share_value",
-            ]
-            if column in frame.columns
-        ]
-        return dcc.send_data_frame(frame[export_columns].to_csv, "nba_scoring_leaderboard.csv", index=False)
+        export_ids = [column["id"] for column in columns if column["id"] in frame.columns]
+        export_frame = frame[export_ids].rename(columns={column["id"]: column["name"] for column in columns})
+        return dcc.send_data_frame(export_frame.to_csv, "nba_scoring_leaderboard.csv", index=False)
 
 
 def _secondary_title(filters: DashboardFilters) -> str:
@@ -511,3 +690,88 @@ def _secondary_note(filters: DashboardFilters) -> str:
     if filters.analysis_mode == "projected_pace":
         return "Projected pace uses the published `projected_48` values and benchmark guide lines."
     return f"Rolling analysis uses the trailing {filters.analysis_window}-second window at each scoring event."
+
+
+def _empty_filter_message(filters: DashboardFilters) -> str:
+    hints: list[str] = []
+    preset_label = get_preset_label(filters.preset)
+    if preset_label:
+        hints.append(f"quick view is {preset_label}")
+    if filters.min_points:
+        hints.append(f"min points is {filters.min_points}")
+    if filters.competitive_only:
+        hints.append("competitive-only is on")
+    elif filters.min_competitive_share is not None:
+        hints.append(f"competitive share is at least {filters.min_competitive_share:.2f}")
+    if not filters.include_ot:
+        hints.append("OT is excluded")
+    if filters.player:
+        hints.append(f"player is {filters.player}")
+    if filters.team:
+        hints.append(f"team is {filters.team}")
+    if filters.opponent:
+        hints.append(f"opponent is {filters.opponent}")
+    if filters.era:
+        hints.append(f"era is {filters.era}")
+    if filters.entity_mode == "game":
+        if filters.min_ts_pct is not None:
+            hints.append(f"TS% is at least {filters.min_ts_pct:.2f}")
+        if filters.min_efg_pct is not None:
+            hints.append(f"eFG% is at least {filters.min_efg_pct:.2f}")
+        if filters.min_offensive_share is not None:
+            hints.append(f"offensive share is at least {filters.min_offensive_share:.2f}")
+    if not hints:
+        return "No performances matched the current filters. Try a quick view or relax the ranking thresholds."
+    joined = "; ".join(hints[:4])
+    return f"No performances matched the current filters. Current constraints: {joined}. Try a quick view or relax one of those constraints."
+
+
+def _build_filters_from_inputs(
+    *,
+    entity_mode: str,
+    ranking_metric: str,
+    time_mode: str,
+    burst_window: int,
+    analysis_mode: str,
+    analysis_window: int,
+    line_color_mode: str,
+    shot_markers: list[str] | None,
+    include_ot: list[str] | None,
+    competitive_only: list[str] | None,
+    min_points: Any,
+    min_competitive_share: Any,
+    min_ts_pct: Any,
+    min_efg_pct: Any,
+    min_offensive_share: Any,
+    player: str | None,
+    team: str | None,
+    opponent: str | None,
+    season: str | None,
+    season_type: str | None,
+    era: str | None,
+    preset: str | None,
+) -> DashboardFilters:
+    return normalize_filters(
+        entity_mode=entity_mode,
+        ranking_metric=ranking_metric,
+        time_mode=time_mode,
+        burst_window=burst_window,
+        analysis_mode=analysis_mode,
+        analysis_window=analysis_window,
+        line_color_mode=line_color_mode,
+        show_shot_markers="markers" in (shot_markers or []),
+        include_ot="include" in (include_ot or []),
+        competitive_only="competitive" in (competitive_only or []),
+        min_points=min_points,
+        min_competitive_share=min_competitive_share,
+        min_ts_pct=min_ts_pct,
+        min_efg_pct=min_efg_pct,
+        min_offensive_share=min_offensive_share,
+        player=player,
+        team=team,
+        opponent=opponent,
+        season=season,
+        season_type=season_type,
+        era=era,
+        preset=preset,
+    )

@@ -3,7 +3,6 @@ from __future__ import annotations
 from pathlib import Path
 from tempfile import TemporaryDirectory
 import unittest
-from unittest.mock import patch
 
 import pandas as pd
 
@@ -16,190 +15,17 @@ from nba_scoring_per_game.dashboard.charts import (
 )
 from nba_scoring_per_game.dashboard.state import (
     DashboardFilters,
+    build_quick_view_options,
     apply_dashboard_preset,
     build_leaderboard_table,
     decode_dashboard_state,
     encode_dashboard_state,
     filter_summary_frame,
+    normalize_saved_bundles,
+    serialize_saved_bundle,
 )
-from nba_scoring_per_game.pipeline import DATASET_METADATA_FILENAME, DATASET_SCHEMA_VERSION, process_game
-
-
-def make_manifest_row() -> dict[str, object]:
-    return {
-        "season": "2023-24",
-        "season_type": "Regular Season",
-        "game_id": "game-123",
-        "game_date": "2024-01-01",
-        "home_team_id": 1,
-        "away_team_id": 2,
-        "home_team_tricode": "HOM",
-        "away_team_tricode": "AWY",
-    }
-
-
-def make_raw_playbyplay() -> pd.DataFrame:
-    return pd.DataFrame(
-        [
-            {
-                "gameId": "game-123",
-                "actionNumber": 0,
-                "actionId": 1,
-                "teamId": 0,
-                "teamTricode": "",
-                "personId": 0,
-                "playerName": "",
-                "period": 1,
-                "clock": "PT12M00.00S",
-                "isFieldGoal": 0,
-                "scoreHome": 0,
-                "scoreAway": 0,
-                "pointsTotal": 0,
-                "location": "",
-                "description": "Start of 1st Period",
-                "actionType": "period",
-                "subType": "start",
-            },
-            {
-                "gameId": "game-123",
-                "actionNumber": 1,
-                "actionId": 10,
-                "teamId": 1,
-                "teamTricode": "HOM",
-                "personId": 100,
-                "playerName": "Home Scorer",
-                "period": 1,
-                "clock": "PT11M30.00S",
-                "isFieldGoal": 1,
-                "scoreHome": 2,
-                "scoreAway": 0,
-                "pointsTotal": 2,
-                "location": "h",
-                "description": "Home Scorer Jump Shot (2 PTS)",
-                "actionType": "Made Shot",
-                "subType": "Jump Shot",
-            },
-            {
-                "gameId": "game-123",
-                "actionNumber": 2,
-                "actionId": 11,
-                "teamId": 2,
-                "teamTricode": "AWY",
-                "personId": 200,
-                "playerName": "Away Scorer",
-                "period": 1,
-                "clock": "PT11M00.00S",
-                "isFieldGoal": 1,
-                "scoreHome": 2,
-                "scoreAway": 3,
-                "pointsTotal": 5,
-                "location": "v",
-                "description": "Away Scorer 3PT Jump Shot (3 PTS)",
-                "actionType": "Made Shot",
-                "subType": "Jump Shot",
-            },
-            {
-                "gameId": "game-123",
-                "actionNumber": 3,
-                "actionId": 12,
-                "teamId": 1,
-                "teamTricode": "HOM",
-                "personId": 100,
-                "playerName": "Home Scorer",
-                "period": 2,
-                "clock": "PT10M00.00S",
-                "isFieldGoal": 0,
-                "scoreHome": 3,
-                "scoreAway": 3,
-                "pointsTotal": 6,
-                "location": "h",
-                "description": "Home Scorer Free Throw 1 of 1",
-                "actionType": "Free Throw",
-                "subType": "Free Throw 1 of 1",
-            },
-            {
-                "gameId": "game-123",
-                "actionNumber": 4,
-                "actionId": 13,
-                "teamId": 2,
-                "teamTricode": "AWY",
-                "personId": 200,
-                "playerName": "Away Scorer",
-                "period": 4,
-                "clock": "PT00M10.00S",
-                "isFieldGoal": 1,
-                "scoreHome": 3,
-                "scoreAway": 5,
-                "pointsTotal": 8,
-                "location": "v",
-                "description": "Away Scorer Layup",
-                "actionType": "Made Shot",
-                "subType": "Layup Shot",
-            },
-        ]
-    )
-
-
-def make_boxscore_totals() -> pd.DataFrame:
-    return pd.DataFrame(
-        [
-            {
-                "game_id": "game-123",
-                "team_id": 1,
-                "team_tricode": "HOM",
-                "player_id": 100,
-                "player_name_boxscore": "Home Scorer",
-                "official_points": 3,
-                "minutes_played_raw": "PT30M00.00S",
-                "minutes_played": 30.0,
-                "field_goals_made": 1,
-                "field_goals_attempted": 1,
-                "three_pointers_made": 0,
-                "three_pointers_attempted": 0,
-                "free_throws_made": 1,
-                "free_throws_attempted": 1,
-            },
-            {
-                "game_id": "game-123",
-                "team_id": 2,
-                "team_tricode": "AWY",
-                "player_id": 200,
-                "player_name_boxscore": "Away Scorer",
-                "official_points": 5,
-                "minutes_played_raw": "PT32M00.00S",
-                "minutes_played": 32.0,
-                "field_goals_made": 2,
-                "field_goals_attempted": 2,
-                "three_pointers_made": 1,
-                "three_pointers_attempted": 1,
-                "free_throws_made": 0,
-                "free_throws_attempted": 0,
-            },
-        ]
-    )
-
-
-def build_test_outputs(tmpdir: str) -> None:
-    with patch("nba_scoring_per_game.pipeline.fetch_playbyplay", return_value=make_raw_playbyplay()), patch(
-        "nba_scoring_per_game.pipeline.fetch_boxscore_player_totals",
-        return_value=make_boxscore_totals(),
-    ):
-        process_game(make_manifest_row(), out_dir=tmpdir, write_mode="overwrite", raw_cache=False)
-
-
-def find_component_by_id(component, component_id: str):
-    if getattr(component, "id", None) == component_id:
-        return component
-    children = getattr(component, "children", None)
-    if children is None:
-        return None
-    if isinstance(children, (list, tuple)):
-        for child in children:
-            found = find_component_by_id(child, component_id)
-            if found is not None:
-                return found
-        return None
-    return find_component_by_id(children, component_id)
+from nba_scoring_per_game.pipeline import DATASET_METADATA_FILENAME
+from tests.fixtures import build_test_outputs, find_component_by_id
 
 
 class DashboardTests(unittest.TestCase):
@@ -252,21 +78,21 @@ class DashboardTests(unittest.TestCase):
 
             quarter_filters = DashboardFilters(entity_mode="quarter", ranking_metric="quarter_points")
             quarter_frame = filter_summary_frame(datasets, quarter_filters)
-            quarter_records, _ = build_leaderboard_table(quarter_frame, quarter_filters, limit=1)
+            quarter_records, _, _ = build_leaderboard_table(quarter_frame, quarter_filters, limit=1)
             quarter_figure = build_trajectory_figure(quarter_records, timelines, quarter_filters)
             self.assertTrue(quarter_figure.data)
             self.assertEqual(quarter_figure.layout.xaxis.title.text, "Quarter Minute")
 
             half_filters = DashboardFilters(entity_mode="half", ranking_metric="half_points")
             half_frame = filter_summary_frame(datasets, half_filters)
-            half_records, _ = build_leaderboard_table(half_frame, half_filters, limit=1)
+            half_records, _, _ = build_leaderboard_table(half_frame, half_filters, limit=1)
             half_figure = build_trajectory_figure(half_records, timelines, half_filters)
             self.assertTrue(half_figure.data)
             self.assertEqual(half_figure.layout.xaxis.title.text, "Half Minute")
 
             burst_filters = DashboardFilters(entity_mode="burst", ranking_metric="points_in_window", burst_window=180)
             burst_frame = filter_summary_frame(datasets, burst_filters)
-            burst_records, _ = build_leaderboard_table(burst_frame, burst_filters, limit=1)
+            burst_records, _, _ = build_leaderboard_table(burst_frame, burst_filters, limit=1)
             burst_figure = build_trajectory_figure(burst_records, timelines, burst_filters)
             self.assertTrue(burst_figure.data)
             self.assertEqual(burst_figure.layout.xaxis.title.text, "Burst Seconds")
@@ -277,7 +103,7 @@ class DashboardTests(unittest.TestCase):
             datasets = load_dashboard_datasets(tmpdir)
             filters = DashboardFilters(entity_mode="game")
             frame = filter_summary_frame(datasets, filters)
-            records, _ = build_leaderboard_table(frame, filters, limit=1)
+            records, _, _ = build_leaderboard_table(frame, filters, limit=1)
             timelines = pd.read_parquet(
                 Path(tmpdir)
                 / "player_scoring_timelines"
@@ -307,10 +133,14 @@ class DashboardTests(unittest.TestCase):
         with TemporaryDirectory() as tmpdir:
             build_test_outputs(tmpdir)
             app = create_dashboard_app(tmpdir)
+            self.assertIsNotNone(find_component_by_id(app.layout, "app-guide"))
             self.assertIsNotNone(find_component_by_id(app.layout, "leaderboard-table"))
+            self.assertIsNotNone(find_component_by_id(app.layout, "quick-view-bar"))
             self.assertIsNotNone(find_component_by_id(app.layout, "comparison-chart"))
             self.assertIsNotNone(find_component_by_id(app.layout, "secondary-analysis-chart"))
             self.assertIsNotNone(find_component_by_id(app.layout, "comparison-tray"))
+            self.assertIsNotNone(find_component_by_id(app.layout, "saved-bundle-select"))
+            self.assertIsNotNone(find_component_by_id(app.layout, "remove-last-comparison"))
             self.assertIsNotNone(find_component_by_id(app.layout, "detail-panel-content"))
 
     def test_create_dashboard_app_empty_state_without_outputs(self) -> None:
@@ -342,6 +172,16 @@ class DashboardTests(unittest.TestCase):
         self.assertEqual(decoded["filters"].era, "2020s")
         self.assertEqual(decoded["selected_row_ids"], ["quarter:g:1:q1", "quarter:g:2:q2"])
 
+    def test_decode_dashboard_state_invalid_mode_falls_back_to_game(self) -> None:
+        decoded = decode_dashboard_state("?mode=garbage&rank=quarter_points")
+        self.assertEqual(decoded["filters"].entity_mode, "game")
+        self.assertEqual(decoded["filters"].ranking_metric, "total_points")
+
+    def test_quick_view_options_match_preset_definitions(self) -> None:
+        options = build_quick_view_options()
+        self.assertEqual(options[0]["value"], "top_scoring_games")
+        self.assertEqual(options[-1]["value"], "competitive_60_plus_games")
+
     def test_apply_dashboard_preset_returns_expected_defaults(self) -> None:
         burst = apply_dashboard_preset("best_3_min_bursts")
         self.assertEqual(burst.entity_mode, "burst")
@@ -365,10 +205,26 @@ class DashboardTests(unittest.TestCase):
         )
         rolling_points = build_rolling_analysis_series(entity_timeline, window_seconds=60, mode="rolling_points")
         rolling_rate = build_rolling_analysis_series(entity_timeline, window_seconds=60, mode="rolling_rate")
-        self.assertEqual(rolling_points["analysis_window_points"].tolist(), [5.0, 5.0, 7.0])
+        self.assertEqual(rolling_points["analysis_window_points"].tolist(), [2.0, 5.0, 7.0])
         self.assertTrue(pd.isna(rolling_rate["analysis_value"].iloc[0]))
         self.assertTrue(pd.isna(rolling_rate["analysis_value"].iloc[1]))
         self.assertAlmostEqual(float(rolling_rate["analysis_value"].iloc[2]), 10.5, places=6)
+
+    def test_saved_bundle_serialization_and_normalization(self) -> None:
+        bundle = serialize_saved_bundle(
+            "Core Set",
+            DashboardFilters(entity_mode="game", ranking_metric="offensive_share"),
+            ["game:g1:1"],
+        )
+        normalized = normalize_saved_bundles(
+            [
+                {"id": bundle.id, "name": bundle.name, "search": bundle.search, "saved_at": bundle.saved_at},
+                {"name": "bad"},
+            ]
+        )
+        self.assertEqual(len(normalized), 1)
+        self.assertEqual(normalized[0].name, "Core Set")
+        self.assertIn("rank=offensive_share", normalized[0].search)
 
     def test_secondary_analysis_figure_adds_projected_pace_benchmarks(self) -> None:
         with TemporaryDirectory() as tmpdir:
@@ -376,7 +232,7 @@ class DashboardTests(unittest.TestCase):
             datasets = load_dashboard_datasets(tmpdir)
             filters = DashboardFilters(entity_mode="game", analysis_mode="projected_pace")
             frame = filter_summary_frame(datasets, filters)
-            records, _ = build_leaderboard_table(frame, filters, limit=1)
+            records, _, _ = build_leaderboard_table(frame, filters, limit=1)
             timelines = pd.read_parquet(
                 Path(tmpdir)
                 / "player_scoring_timelines"
@@ -403,6 +259,60 @@ class DashboardTests(unittest.TestCase):
                 ),
             )
             self.assertEqual(frame["player_name"].tolist(), ["Away Scorer"])
+
+    def test_build_leaderboard_table_promotes_metric_columns_and_styles(self) -> None:
+        with TemporaryDirectory() as tmpdir:
+            build_test_outputs(tmpdir)
+            datasets = load_dashboard_datasets(tmpdir)
+            filters = DashboardFilters(entity_mode="game", ranking_metric="offensive_share")
+            frame = filter_summary_frame(datasets, filters)
+            records, columns, styles = build_leaderboard_table(frame, filters, limit=5)
+            self.assertTrue(records)
+            column_ids = [column["id"] for column in columns]
+            self.assertIn("ts_pct_display", column_ids)
+            self.assertIn("offensive_share_display", column_ids)
+            self.assertEqual(styles["highlight_column_id"], "offensive_share_display")
+            self.assertTrue(any(rule["if"]["column_id"] == "offensive_share_display" for rule in styles["style_header_conditional"]))
+
+    def test_build_leaderboard_table_uses_mode_specific_columns(self) -> None:
+        with TemporaryDirectory() as tmpdir:
+            build_test_outputs(tmpdir)
+            datasets = load_dashboard_datasets(tmpdir)
+            filters = DashboardFilters(entity_mode="burst", ranking_metric="points_in_window", burst_window=180)
+            frame = filter_summary_frame(datasets, filters)
+            _, columns, styles = build_leaderboard_table(frame, filters, limit=5)
+            column_ids = [column["id"] for column in columns]
+            self.assertIn("window_points_per_minute_display", column_ids)
+            self.assertIn("avg_abs_score_diff_in_window_display", column_ids)
+            self.assertEqual(styles["highlight_column_id"], "points_in_window_display")
+
+    def test_render_dashboard_view_empty_state_includes_active_filter_guidance(self) -> None:
+        with TemporaryDirectory() as tmpdir:
+            build_test_outputs(tmpdir)
+            datasets = load_dashboard_datasets(tmpdir)
+            view = render_dashboard_view(
+                datasets,
+                tmpdir,
+                DashboardFilters(entity_mode="game", min_points=99, competitive_only=True, include_ot=False),
+                None,
+            )
+            self.assertIn("Current constraints", view["status"])
+            self.assertIn("min points is 99", view["status"])
+
+    def test_render_dashboard_view_includes_styles_for_active_metric(self) -> None:
+        with TemporaryDirectory() as tmpdir:
+            build_test_outputs(tmpdir)
+            datasets = load_dashboard_datasets(tmpdir)
+            view = render_dashboard_view(
+                datasets,
+                tmpdir,
+                DashboardFilters(entity_mode="game", ranking_metric="ts_pct"),
+                None,
+            )
+            self.assertEqual(view["leaderboard_styles"]["highlight_column_id"], "ts_pct_display")
+            self.assertTrue(
+                any(rule.get("if", {}).get("column_id") == "ts_pct_display" for rule in view["leaderboard_styles"]["style_data_conditional"])
+            )
 
 
 if __name__ == "__main__":

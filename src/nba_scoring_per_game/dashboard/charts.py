@@ -274,9 +274,12 @@ def build_rolling_analysis_series(
     points_in_window: list[float] = []
     spans_in_window: list[float] = []
     values: list[float] = []
-    for event_time in event_times.tolist():
+    for position, event_time in enumerate(event_times.tolist()):
         lower_bound = max(interval_start, float(event_time) - float(window_seconds))
-        mask = event_times.ge(lower_bound) & event_times.le(float(event_time))
+        mask = event_times.ge(lower_bound) & (
+            (event_times < float(event_time))
+            | ((event_times == float(event_time)) & (timeline.index <= position))
+        )
         window_points = float(point_values.loc[mask].sum())
         span_seconds = float(event_time) - lower_bound
         points_in_window.append(window_points)
@@ -464,9 +467,11 @@ def _hover_customdata(timeline_df: pd.DataFrame, filters: DashboardFilters) -> l
             row["game_date"],
             row["season"],
             _period_label(row),
+            _clock_display(row.get("clock")),
             _mode_time_label(filters.entity_mode, filters.time_mode),
             _mode_time_value(row, filters.entity_mode, filters.time_mode),
-            row["game_minute"],
+            _entity_context_label(row, filters.entity_mode),
+            _game_minute_label(row.get("game_minute")),
             row["point_value"],
             row["scoring_type"],
             row["player_team_score_after"],
@@ -483,13 +488,14 @@ def _hover_template() -> str:
         "<b>%{customdata[0]}</b><br>"
         "%{customdata[1]} vs %{customdata[2]}<br>"
         "%{customdata[3]} · %{customdata[4]}<br>"
-        "%{customdata[5]} · %{customdata[6]} %{customdata[7]}<br>"
-        "Game minute %{customdata[8]}<br>"
+        "%{customdata[5]} · %{customdata[6]} remaining<br>"
+        "%{customdata[9]} · %{customdata[7]} %{customdata[8]}<br>"
+        "Game minute %{customdata[10]}<br>"
         "Cumulative: %{y}<br>"
-        "Event: %{customdata[9]} pts (%{customdata[10]})<br>"
-        "Score: %{customdata[11]}-%{customdata[12]}<br>"
-        "Diff: %{customdata[13]}<br>"
-        "Projected 48: %{customdata[14]}<extra></extra>"
+        "Event: %{customdata[11]} pts (%{customdata[12]})<br>"
+        "Score: %{customdata[13]}-%{customdata[14]}<br>"
+        "Diff: %{customdata[15]}<br>"
+        "Projected 48: %{customdata[16]}<extra></extra>"
     )
 
 
@@ -512,6 +518,8 @@ def _analysis_hover_customdata(series_df: pd.DataFrame, filters: DashboardFilter
                 row["player_name"],
                 label,
                 window,
+                _period_label(row),
+                _clock_display(row.get("clock")),
                 _mode_time_value(row, filters.entity_mode, filters.time_mode),
                 value,
             ]
@@ -523,13 +531,15 @@ def _analysis_hover_template(mode: str) -> str:
     if mode == "projected_pace":
         return (
             "<b>%{customdata[0]}</b><br>"
-            "%{customdata[1]}: %{customdata[4]}<br>"
-            "At %{customdata[3]}<extra></extra>"
+            "%{customdata[1]}: %{customdata[6]}<br>"
+            "%{customdata[3]} · %{customdata[4]} remaining<br>"
+            "At %{customdata[5]}<extra></extra>"
         )
     return (
         "<b>%{customdata[0]}</b><br>"
-        "%{customdata[1]} (%{customdata[2]}): %{customdata[4]}<br>"
-        "At %{customdata[3]}<extra></extra>"
+        "%{customdata[1]} (%{customdata[2]}): %{customdata[6]}<br>"
+        "%{customdata[3]} · %{customdata[4]} remaining<br>"
+        "At %{customdata[5]}<extra></extra>"
     )
 
 
@@ -556,6 +566,44 @@ def _mode_time_value(row: pd.Series, entity_mode: str, time_mode: str) -> str:
         return "NA"
     numeric = float(value)
     return f"{numeric:.0%}" if time_mode == "normalized" else f"{numeric:.1f}"
+
+
+def _entity_context_label(row: pd.Series, entity_mode: str) -> str:
+    if entity_mode == "quarter":
+        return "Quarter context"
+    if entity_mode == "half":
+        half_index = row.get("half_index")
+        return f"H{int(half_index)} context" if half_index not in {None, "", "None"} and not pd.isna(half_index) else "Half context"
+    if entity_mode == "burst":
+        return "Burst context"
+    return "Game context"
+
+
+def _game_minute_label(value: Any) -> str:
+    if value is None or pd.isna(value):
+        return "NA"
+    return f"{float(value):.1f}"
+
+
+def _clock_display(value: Any) -> str:
+    if value in {None, "", "None"}:
+        return "NA"
+    text = str(value).strip()
+    if not text.startswith("PT"):
+        return text
+    body = text[2:]
+    minutes_text = "0"
+    seconds_text = "00"
+    if "M" in body:
+        minutes_text, body = body.split("M", 1)
+    if body.endswith("S"):
+        seconds_text = body[:-1] or "0"
+    try:
+        minutes = int(float(minutes_text or 0))
+        seconds = float(seconds_text or 0)
+    except ValueError:
+        return text
+    return f"{minutes}:{int(seconds):02d}"
 
 
 def _period_label(row: Any) -> str:

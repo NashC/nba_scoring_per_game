@@ -10,6 +10,7 @@
 }
 
 .hero-panel,
+.guide-panel,
 .filter-bar,
 .leaderboard-panel,
 .chart-panel,
@@ -59,6 +60,62 @@
   gap: 12px;
   min-width: 260px;
   align-content: start;
+}
+
+.guide-panel {
+  margin: 0 0 14px;
+  padding: 18px 20px;
+}
+
+.guide-summary {
+  cursor: pointer;
+  font-size: 1rem;
+  font-weight: 800;
+  color: #1f1b18;
+  list-style: none;
+}
+
+.guide-summary::-webkit-details-marker {
+  display: none;
+}
+
+.guide-summary::after {
+  content: "Open";
+  margin-left: 12px;
+  font-size: 0.76rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: #8e3b46;
+}
+
+.guide-panel[open] .guide-summary::after {
+  content: "Hide";
+}
+
+.guide-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  margin-top: 14px;
+}
+
+.guide-block {
+  background: #f7efe4;
+  border: 1px solid rgba(139, 116, 90, 0.16);
+  border-radius: 18px;
+  padding: 14px 16px;
+}
+
+.guide-block-title {
+  margin: 0;
+  font-size: 0.96rem;
+}
+
+.guide-block-body {
+  margin: 8px 0 0;
+  color: #635646;
+  line-height: 1.5;
+  font-size: 0.92rem;
 }
 
 .metric-chip {
@@ -167,7 +224,8 @@
 
 .panel-button,
 .clear-comparisons-button,
-.comparison-chip-remove {
+.comparison-chip-remove,
+.quick-view-button {
   border: none;
   border-radius: 999px;
   background: #0d5c63;
@@ -180,11 +238,76 @@
   padding: 10px 14px;
 }
 
+.panel-button-muted {
+  background: #8e3b46;
+}
+
+.quick-view-bar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-bottom: 14px;
+}
+
+.quick-view-button {
+  padding: 8px 12px;
+  background: #efe5d7;
+  color: #4e4339;
+}
+
+.quick-view-button-active {
+  background: #0d5c63;
+  color: #fffaf2;
+}
+
+.bundle-toolbar {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-bottom: 14px;
+}
+
+.bundle-toolbar-inputs,
+.bundle-toolbar-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: center;
+}
+
+.bundle-name-input {
+  flex: 1 1 280px;
+  min-width: 220px;
+  border: 1px solid rgba(139, 116, 90, 0.22);
+  border-radius: 12px;
+  padding: 10px 12px;
+  background: #fffaf2;
+  color: #1f1b18;
+}
+
+.saved-bundle-select {
+  flex: 1 1 240px;
+  min-width: 220px;
+}
+
+.bundle-status {
+  color: #635646;
+  font-size: 0.88rem;
+  margin-bottom: 12px;
+  min-height: 20px;
+}
+
 .comparison-tray {
   display: flex;
   flex-wrap: wrap;
   gap: 10px;
   margin-bottom: 14px;
+}
+
+.comparison-chip-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
 }
 
 .comparison-chip {
@@ -205,6 +328,18 @@
 .comparison-chip-remove {
   padding: 6px 10px;
   font-size: 0.75rem;
+}
+
+.comparison-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+}
+
+.comparison-help {
+  color: #7b6d5d;
+  font-size: 0.82rem;
 }
 
 .clear-comparisons-button {
@@ -268,6 +403,22 @@
   margin: 0 0 10px;
   color: #635646;
   line-height: 1.4;
+}
+
+.detail-badge-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.detail-mini-badge {
+  background: #efe5d7;
+  color: #4e4339;
+  border-radius: 999px;
+  padding: 4px 10px;
+  font-size: 0.75rem;
+  font-weight: 700;
 }
 
 .detail-panel-content {
@@ -358,6 +509,20 @@
   overflow-x: auto;
 }
 
+.empty-state-command-secondary {
+  margin-top: 10px;
+  background: #0d5c63;
+}
+
+.panel-button:focus-visible,
+.clear-comparisons-button:focus-visible,
+.comparison-chip-remove:focus-visible,
+.quick-view-button:focus-visible,
+.bundle-name-input:focus-visible {
+  outline: 3px solid rgba(13, 92, 99, 0.28);
+  outline-offset: 2px;
+}
+
 @media (max-width: 1200px) {
   .content-grid {
     grid-template-columns: 1fr;
@@ -382,7 +547,16 @@
   }
 
   .hero-metrics,
+  .guide-grid,
   .detail-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 560px) {
+  .guide-grid,
+  .detail-grid,
+  .hero-metrics {
+    grid-template-columns: 1fr;
   }
 }

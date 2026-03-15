@@ -157,9 +157,26 @@ Phase 4 app features now include:
 
 - a synchronized secondary analysis panel for rolling burst intensity and projected pace
 - query-driven presets such as `70+ games`, `best quarters`, and `competitive 60+ games`
+- quick-view buttons for top games, best quarters/halves, bursts, and competitive high-scoring games
 - URL query-string persistence for filters and comparison selections
 - leaderboard CSV export and chart image export through the Plotly modebar
+- richer leaderboard columns with efficiency, burden, and active-metric highlighting
 - richer game detail cards with final score context, efficiency, burden, shot mix, and burst metrics
+- period-aware hover context for quarter, half, and burst views
+- stronger filtered-empty guidance and keyboard-friendly comparison tray controls
+- detail badges for pace benchmarks and top burst windows
+- saved comparison bundles backed by local browser storage
+
+Benchmark the dashboard data path:
+
+```bash
+PYTHONPATH=src .venv/bin/python scripts/benchmark_dashboard.py --out-dir data
+```
+
+Threshold note:
+
+- if dashboard summary loading exceeds `2.5s` on at least `100k` summary rows, add a summary index next phase
+- if median summary filtering exceeds `250ms` over `20` runs, add `.dashboard_cache/summary_index.parquet` next phase
 
 ## Phase 2 analytics
 
@@ -203,11 +220,13 @@ The repo also exposes thin selection helpers for app consumers:
 The repo now also includes a Dash app package under [`dashboard/`](/Users/nash/Documents/coding_projects/nba_scoring_per_game/src/nba_scoring_per_game/dashboard/app.py) with:
 
 - summary-table loading and schema checks
-- a leaderboard-driven comparison workflow
+- a leaderboard-driven comparison workflow with quick views and active-metric highlighting
 - full-game, quarter, half, and burst chart modes
 - optional shot markers and margin-context coloring
 - a secondary analysis panel for rolling burst windows and projected pace
 - URL-persisted dashboard state and preset filters
+- local saved bundles that restore a dashboard view from browser storage
+- an in-app "How to Use This Explorer" guide for quick views, ranking, saved bundles, and chart modes
 - rich detail cards for the current selection set
 
 ## Validation behavior

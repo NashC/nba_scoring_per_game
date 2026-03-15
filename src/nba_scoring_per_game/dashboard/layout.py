@@ -11,6 +11,7 @@ from .charts import build_empty_figure, build_secondary_analysis_figure, build_t
 from .loader import DashboardDatasets, load_selected_timelines
 from .state import (
     DashboardFilters,
+    build_quick_view_options,
     build_filter_options,
     build_leaderboard_table,
     filter_summary_frame,
@@ -29,6 +30,7 @@ def build_dashboard_layout(datasets: DashboardDatasets) -> html.Div:
                 dcc.Location(id="dashboard-location", refresh=False),
                 dcc.Download(id="leaderboard-download"),
                 dcc.Store(id="url-selected-ids"),
+                dcc.Store(id="saved-bundles", storage_type="local"),
                 html.Div(
                     className="empty-state-card",
                     children=[
@@ -41,6 +43,16 @@ def build_dashboard_layout(datasets: DashboardDatasets) -> html.Div:
                             "nba-scoring-per-game backfill-season --season 2023-24 --out-dir data",
                             className="empty-state-command",
                         ),
+                        html.Pre(
+                            "nba-scoring-per-game serve-app --out-dir data",
+                            className="empty-state-command empty-state-command-secondary",
+                        ),
+                        html.P(
+                            "Backfill the curated parquet outputs first, then launch the app locally. "
+                            "Once data is available, use quick views, leaderboard selection, and saved bundles "
+                            "directly inside the dashboard.",
+                            className="empty-state-text",
+                        ),
                     ],
                 ),
             ],
@@ -48,7 +60,7 @@ def build_dashboard_layout(datasets: DashboardDatasets) -> html.Div:
 
     default_filters = DashboardFilters()
     initial_frame = filter_summary_frame(datasets, default_filters)
-    initial_records, initial_columns = build_leaderboard_table(initial_frame, default_filters)
+    initial_records, initial_columns, initial_styles = build_leaderboard_table(initial_frame, default_filters)
     initial_selected_ids = [initial_records[0]["id"]] if initial_records else []
     initial_selected_records = select_records(initial_records, initial_selected_ids)
     initial_timelines = load_selected_timelines(datasets.out_dir, initial_selected_records)
@@ -77,6 +89,7 @@ def build_dashboard_layout(datasets: DashboardDatasets) -> html.Div:
             dcc.Location(id="dashboard-location", refresh=False),
             dcc.Download(id="leaderboard-download"),
             dcc.Store(id="url-selected-ids"),
+            dcc.Store(id="saved-bundles", storage_type="local"),
             html.Div(
                 className="hero-panel",
                 children=[
@@ -101,6 +114,7 @@ def build_dashboard_layout(datasets: DashboardDatasets) -> html.Div:
                     ),
                 ],
             ),
+            build_app_guide(),
             html.Div(
                 className="filter-bar",
                 children=[
@@ -275,12 +289,17 @@ def build_dashboard_layout(datasets: DashboardDatasets) -> html.Div:
                                     html.Div(
                                         children=[
                                             html.H2("Leaderboard", className="panel-title"),
-                                            html.P("Select up to 4 rows to compare.", className="panel-caption"),
+                                            html.P(
+                                                "Use quick views for preset workflows, then select up to 4 rows to compare. "
+                                                "The active ranking metric is highlighted in the table.",
+                                                className="panel-caption",
+                                            ),
                                         ]
                                     ),
                                     html.Button("Export CSV", id="export-leaderboard", className="panel-button", n_clicks=0),
                                 ],
                             ),
+                            html.Div(id="quick-view-bar", className="quick-view-bar", children=build_quick_view_bar(default_filters.preset)),
                             dash_table.DataTable(
                                 id="leaderboard-table",
                                 data=initial_records,
@@ -297,6 +316,7 @@ def build_dashboard_layout(datasets: DashboardDatasets) -> html.Div:
                                     "border": "none",
                                     "color": "#1f1b18",
                                 },
+                                style_header_conditional=initial_styles["style_header_conditional"],
                                 style_cell={
                                     "backgroundColor": "#fffaf2",
                                     "border": "none",
@@ -305,13 +325,8 @@ def build_dashboard_layout(datasets: DashboardDatasets) -> html.Div:
                                     "padding": "10px 12px",
                                     "textAlign": "left",
                                 },
-                                style_data_conditional=[
-                                    {
-                                        "if": {"state": "selected"},
-                                        "backgroundColor": "#efe5d7",
-                                        "border": "none",
-                                    }
-                                ],
+                                style_cell_conditional=initial_styles["style_cell_conditional"],
+                                style_data_conditional=initial_styles["style_data_conditional"],
                             ),
                         ],
                     ),
@@ -322,8 +337,50 @@ def build_dashboard_layout(datasets: DashboardDatasets) -> html.Div:
                                 className="panel-header",
                                 children=[
                                     html.H2("Trajectory View", className="panel-title"),
-                                    html.P("The main chart stays cumulative; secondary analysis runs below it.", className="panel-caption"),
+                                    html.P(
+                                        "The main chart stays cumulative. Toggle shot markers and context colors here, "
+                                        "and use the synchronized panel below for pace or rolling burst analysis.",
+                                        className="panel-caption",
+                                    ),
                                 ],
+                            ),
+                            html.Div(
+                                className="bundle-toolbar",
+                                children=[
+                                    html.Div(
+                                        className="bundle-toolbar-inputs",
+                                        children=[
+                                            dcc.Input(
+                                                id="bundle-name",
+                                                type="text",
+                                                value="",
+                                                placeholder="Save current comparison bundle",
+                                                className="bundle-name-input",
+                                            ),
+                                            html.Button("Save Bundle", id="save-bundle", className="panel-button", n_clicks=0),
+                                        ],
+                                    ),
+                                    html.Div(
+                                        className="bundle-toolbar-actions",
+                                        children=[
+                                            dcc.Dropdown(
+                                                id="saved-bundle-select",
+                                                options=[],
+                                                value=None,
+                                                placeholder="Saved bundles",
+                                                clearable=True,
+                                                className="saved-bundle-select",
+                                            ),
+                                            html.Button("Load", id="load-bundle", className="panel-button", n_clicks=0),
+                                            html.Button("Delete", id="delete-bundle", className="panel-button panel-button-muted", n_clicks=0),
+                                        ],
+                                    ),
+                                ],
+                            ),
+                            html.Div(
+                                "Bundles save the current filters and selected comparisons in this browser only.",
+                                id="bundle-status",
+                                className="bundle-status",
                             ),
                             html.Div(id="comparison-tray", className="comparison-tray", children=build_comparison_tray(initial_selected_records)),
                             html.Div(id="margin-legend-wrap", className="margin-legend-wrap", style={"display": "none"}, children=build_margin_legend()),
@@ -375,6 +432,41 @@ def build_dashboard_layout(datasets: DashboardDatasets) -> html.Div:
     )
 
 
+def build_app_guide() -> html.Details:
+    return html.Details(
+        id="app-guide",
+        className="guide-panel",
+        children=[
+            html.Summary("How to Use This Explorer", className="guide-summary"),
+            html.Div(
+                className="guide-grid",
+                children=[
+                    _guide_block(
+                        "Quick Views",
+                        "Start with presets like top scoring games, best quarters, best halves, or best 3-minute bursts. "
+                        "Quick views stay synced with the preset filter and URL state.",
+                    ),
+                    _guide_block(
+                        "Leaderboard",
+                        "Change the ranking metric to reorder the table. The highlighted column is the active metric, "
+                        "and you can export the filtered leaderboard as CSV.",
+                    ),
+                    _guide_block(
+                        "Compare and Save",
+                        "Select up to 4 rows to compare. Save that view as a local bundle to restore the same filters "
+                        "and comparison set later in this browser.",
+                    ),
+                    _guide_block(
+                        "Chart and Context",
+                        "The main chart remains cumulative. Use raw or normalized time, shot markers, margin-context "
+                        "colors, and the secondary panel for rolling burst intensity or projected pace.",
+                    ),
+                ],
+            ),
+        ],
+    )
+
+
 def build_enriched_detail_cards(
     selected_records: list[dict[str, Any]],
     entity_mode: str,
@@ -387,6 +479,7 @@ def build_enriched_detail_cards(
 
 def build_detail_card(record: dict[str, Any], entity_mode: str, timeline_df):
     context = _context_shares(timeline_df)
+    badges = _detail_badges(record, entity_mode, context)
     if entity_mode == "game":
         metrics = [
             ("Points", record.get("final_points")),
@@ -446,6 +539,7 @@ def build_detail_card(record: dict[str, Any], entity_mode: str, timeline_df):
                                 f"{record.get('team_tricode', '')} vs {record.get('opponent_team_tricode', '')} · {record.get('game_date', '')}",
                                 className="detail-card-subtitle",
                             ),
+                            html.Div(badges, className="detail-badge-row") if badges else None,
                         ]
                     ),
                     html.Div(record.get("entity_label", "Selection"), className="detail-badge"),
@@ -471,7 +565,7 @@ def build_detail_card(record: dict[str, Any], entity_mode: str, timeline_df):
 def build_comparison_tray(selected_records: list[dict[str, Any]]):
     if not selected_records:
         return html.Div("No active comparisons.", className="comparison-tray-empty")
-    return [
+    chips = [
         html.Div(
             className="comparison-chip",
             children=[
@@ -481,11 +575,43 @@ def build_comparison_tray(selected_records: list[dict[str, Any]]):
                     id={"type": "comparison-remove", "selection_id": record["selection_id"]},
                     className="comparison-chip-remove",
                     n_clicks=0,
+                    title=f"Remove {record.get('player_name')} from the comparison set",
                 ),
             ],
         )
         for record in selected_records
-    ] + [html.Button("Clear All", id="clear-comparisons", className="clear-comparisons-button", n_clicks=0)]
+    ]
+    actions = html.Div(
+        className="comparison-actions",
+        children=[
+            html.Span("Use Tab and Enter to remove chips or step back one selection.", className="comparison-help"),
+            html.Button("Remove Last", id="remove-last-comparison", className="clear-comparisons-button", n_clicks=0, accessKey="r"),
+            html.Button("Clear All", id="clear-comparisons", className="clear-comparisons-button", n_clicks=0, accessKey="c"),
+        ],
+    )
+    return [html.Div(chips, className="comparison-chip-list"), actions]
+
+
+def build_quick_view_bar(active_preset: str | None):
+    return [
+        html.Button(
+            option["label"],
+            id={"type": "quick-view-button", "preset": option["value"]},
+            className="quick-view-button quick-view-button-active" if option["value"] == active_preset else "quick-view-button",
+            n_clicks=0,
+        )
+        for option in build_quick_view_options()
+    ]
+
+
+def _guide_block(title: str, body: str) -> html.Div:
+    return html.Div(
+        className="guide-block",
+        children=[
+            html.H3(title, className="guide-block-title"),
+            html.P(body, className="guide-block-body"),
+        ],
+    )
 
 
 def build_margin_legend():
@@ -535,6 +661,29 @@ def _context_shares(timeline_df) -> dict[str, float | None]:
     leading = float(points.loc[pd.to_numeric(timeline_df["score_diff"], errors="coerce") > 0].sum()) / total
     tied = float(points.loc[pd.to_numeric(timeline_df["score_diff"], errors="coerce") == 0].sum()) / total
     return {"trailing_share": trailing, "leading_share": leading, "tied_share": tied}
+
+
+def _detail_badges(
+    record: dict[str, Any],
+    entity_mode: str,
+    context: dict[str, float | None],
+) -> list[html.Span]:
+    labels: list[str] = []
+    if entity_mode == "game":
+        pace_badge = _pace_benchmark_badge(record.get("peak_projected_48"))
+        best_burst = _best_burst_badge(record)
+        if pace_badge:
+            labels.append(pace_badge)
+        if best_burst:
+            labels.append(best_burst)
+        competitive = record.get("competitive_scoring_share")
+        if competitive not in {None, "", "None"}:
+            labels.append(f"Competitive {_pct(competitive)}")
+    elif entity_mode == "burst":
+        labels.append(str(record.get("burst_window_label", "Burst Window")))
+    if context.get("trailing_share") not in {None, "", "None"}:
+        labels.append(f"Trailing {_pct(context['trailing_share'])}")
+    return [html.Span(label, className="detail-mini-badge") for label in labels[:4]]
 
 
 def _dropdown(label: str, component_id: str, options: list[dict[str, Any]], value: Any, clearable: bool) -> html.Div:
@@ -609,6 +758,41 @@ def _period_string(value: Any) -> str:
         return "NA"
     period = int(value)
     return f"Q{period}" if period <= 4 else f"OT{period - 4}"
+
+
+def _pace_benchmark_badge(value: Any) -> str | None:
+    if value in {None, "", "None"}:
+        return None
+    try:
+        numeric = float(value)
+    except (TypeError, ValueError):
+        return None
+    for benchmark in [100, 80, 70, 60, 50]:
+        if numeric >= benchmark:
+            return f"Pace {benchmark}+"
+    return None
+
+
+def _best_burst_badge(record: dict[str, Any]) -> str | None:
+    candidates = [
+        ("60s", record.get("best_60_sec_points")),
+        ("2m", record.get("best_2_min_points")),
+        ("3m", record.get("best_3_min_points")),
+        ("5m", record.get("best_5_min_points")),
+        ("10m", record.get("best_10_min_points")),
+    ]
+    resolved: list[tuple[str, int]] = []
+    for label, value in candidates:
+        if value in {None, "", "None"}:
+            continue
+        try:
+            resolved.append((label, int(value)))
+        except (TypeError, ValueError):
+            continue
+    if not resolved:
+        return None
+    label, amount = max(resolved, key=lambda item: item[1])
+    return f"Best {label}: {amount}"
 
 
 def _signed(value: Any) -> str:

@@ -18,9 +18,18 @@ Implemented in the app today:
   - rolling points-per-minute in trailing windows
   - projected 48-minute pace
 - query-driven presets
+- quick-view buttons that map directly to the preset system
 - URL-persisted filters and comparison selections
+- local saved comparison bundles backed by browser storage
+- richer mode-aware leaderboard columns with efficiency, burden, and active-metric highlighting
 - richer detail cards with final score, efficiency, burden, and burst summaries
+- period-aware hover formatting for quarter, half, and burst views
+- keyboard-friendly comparison tray controls with remove-last and clear-all actions
+- stronger filtered-empty guidance for incompatible control combinations
+- detail badges for pace benchmarks and best-burst windows
 - leaderboard CSV export and chart-image export through Plotly
+- in-memory caching for filtered leaderboard slices
+- a benchmark script for dashboard startup and summary filtering
 
 ## Stable data/app contract
 
@@ -42,28 +51,18 @@ Important semantics that remain fixed:
 
 ## Highest-value next improvements
 
-### Phase 5: refinement and usability
+### Phase 7: deeper exploration and data density
 
-- add more polished period-aware hover formatting for quarter, half, and burst views
-- improve comparison management with keyboard-friendly add/remove behavior
-- add stronger filtered-empty messages and guidance for incompatible control combinations
-- add optional annotations or badges for benchmark lines and best-burst windows in the detail area
+- add secondary leaderboard tabs or segmented leaderboard panes without leaving the current page
+- add optional compare-by metric chips that swap the active ranking without opening the filter bar
+- expose more compact burst metadata directly in the leaderboard, such as start period/clock
+- add lightweight “saved bundle preview” metadata so users can see what a bundle contains before loading it
 
-### Phase 6: richer exploration surfaces
+### Backend and performance follow-up
 
-- add secondary leaderboard tabs or preset views for:
-  - best quarters ever
-  - best halves ever
-  - best bursts ever
-  - competitive high-scoring games
-- expose `ts_pct`, `efg_pct`, and `offensive_share` more prominently in the leaderboard itself
-- add saved comparison bundles built from filters and rankings rather than hardcoded player buttons
-
-### Backend polish
-
-- add a shared test-fixture module so pipeline and dashboard tests stop duplicating sample-game builders
-- consider a lightweight summary index if parquet scans become expensive on larger local datasets
-- consider caching already-sliced entity timelines in memory if comparison loads become heavier
+- keep monitoring the benchmark thresholds for a persisted summary index
+- consider caching already-sliced entity timelines in memory if comparison loads become heavier on large local datasets
+- extend the benchmark script with selectable scenario profiles once larger datasets are available
 
 ## Acceptance targets from here
 

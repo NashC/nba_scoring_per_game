@@ -14,6 +14,7 @@ from ..pipeline import DATASET_METADATA_FILENAME, DATASET_SCHEMA_VERSION, get_da
 class DashboardDatasets:
     out_dir: Path
     metadata: dict[str, Any]
+    summary_signature: tuple[tuple[str, int], ...]
     game_summaries: pd.DataFrame
     quarter_summaries: pd.DataFrame
     half_summaries: pd.DataFrame
@@ -30,6 +31,7 @@ def load_dashboard_datasets(out_dir: str | Path = "data") -> DashboardDatasets:
         return DashboardDatasets(
             out_dir=out_path,
             metadata={},
+            summary_signature=(),
             game_summaries=pd.DataFrame(),
             quarter_summaries=pd.DataFrame(),
             half_summaries=pd.DataFrame(),
@@ -49,7 +51,8 @@ def load_dashboard_datasets(out_dir: str | Path = "data") -> DashboardDatasets:
             f"Expected {DATASET_SCHEMA_VERSION}, found {schema_version}."
         )
 
-    cache_key = ("dashboard-datasets", str(out_path.resolve()), _summary_signature(out_path), schema_version)
+    summary_signature = _summary_signature(out_path)
+    cache_key = ("dashboard-datasets", str(out_path.resolve()), summary_signature, schema_version)
     with _cache_for_out_dir(out_path) as cache:
         cached = cache.get(cache_key)
         if cached is not None:
@@ -58,6 +61,7 @@ def load_dashboard_datasets(out_dir: str | Path = "data") -> DashboardDatasets:
         datasets = DashboardDatasets(
             out_dir=out_path,
             metadata=metadata,
+            summary_signature=summary_signature,
             game_summaries=_prepare_summary_frame(load_dataset(out_path / "player_game_summaries")),
             quarter_summaries=_prepare_summary_frame(load_dataset(out_path / "player_quarter_summaries")),
             half_summaries=_prepare_summary_frame(load_dataset(out_path / "player_half_summaries")),
@@ -106,7 +110,7 @@ def load_selected_timelines(
             }
         )
     )
-    cache_key = ("selected-timelines", str(out_path.resolve()), signature)
+    cache_key = ("selected-timelines", str(out_path.resolve()), _timeline_signature(out_path, signature))
     with _cache_for_out_dir(out_path) as cache:
         cached = cache.get(cache_key)
         if cached is not None:
@@ -148,6 +152,23 @@ def _summary_signature(out_dir: Path) -> tuple[tuple[str, int], ...]:
         else:
             signature.append((str(target), 0))
     return tuple(signature)
+
+
+def _timeline_signature(
+    out_dir: Path,
+    signature: tuple[tuple[str, str, str], ...],
+) -> tuple[tuple[str, int], ...]:
+    resolved: list[tuple[str, int]] = []
+    for season, season_type, game_id in signature:
+        path = (
+            out_dir
+            / "player_scoring_timelines"
+            / f"season={season}"
+            / f"season_type={season_type}"
+            / f"part-{game_id}.parquet"
+        )
+        resolved.append((str(path), path.stat().st_mtime_ns if path.exists() else 0))
+    return tuple(resolved)
 
 
 def _cache_for_out_dir(out_dir: Path) -> Cache:

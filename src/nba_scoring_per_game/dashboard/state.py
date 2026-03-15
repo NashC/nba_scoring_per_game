@@ -1,8 +1,11 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from collections import OrderedDict
+from dataclasses import asdict, dataclass
+from datetime import datetime, UTC
 from typing import Any
 from urllib.parse import parse_qs, urlencode
+from uuid import uuid4
 
 import pandas as pd
 
@@ -10,9 +13,16 @@ from ..pipeline import query_player_games
 from .loader import DashboardDatasets
 
 MAX_COMPARISONS = 4
+MAX_SAVED_BUNDLES = 12
+FILTER_CACHE_SIZE = 128
 DEFAULT_ENTITY_MODE = "game"
 DEFAULT_ANALYSIS_MODE = "none"
 DEFAULT_ANALYSIS_WINDOW = 180
+VALID_ENTITY_MODES = {"game", "quarter", "half", "burst"}
+VALID_TIME_MODES = {"raw", "normalized"}
+VALID_ANALYSIS_MODES = {"none", "rolling_points", "rolling_rate", "projected_pace"}
+VALID_LINE_COLOR_MODES = {"player", "margin"}
+VALID_WINDOW_SECONDS = {60, 120, 180, 300, 600}
 DEFAULT_RANKING_METRIC = {
     "game": "total_points",
     "quarter": "quarter_points",
@@ -141,6 +151,66 @@ QUERY_PARAM_KEYS = {
     "preset": "preset",
     "selected_ids": "selected",
 }
+LEADERBOARD_BASE_SPECS = {
+    "game": [
+        ("rank", "#", "text"),
+        ("player_name", "Player", "text"),
+        ("team_tricode", "Team", "text"),
+        ("opponent_team_tricode", "Opp", "text"),
+        ("game_date", "Date", "text"),
+        ("final_points", "Points", "int"),
+        ("points_per_minute", "Pts / Min", "decimal"),
+        ("ts_pct", "TS%", "pct1"),
+        ("efg_pct", "eFG%", "pct1"),
+        ("offensive_share", "Off Share", "pct1"),
+        ("peak_projected_48", "Peak Proj 48", "decimal"),
+        ("competitive_scoring_share", "Comp Share", "pct1"),
+    ],
+    "quarter": [
+        ("rank", "#", "text"),
+        ("player_name", "Player", "text"),
+        ("team_tricode", "Team", "text"),
+        ("opponent_team_tricode", "Opp", "text"),
+        ("game_date", "Date", "text"),
+        ("entity_label", "Segment", "text"),
+        ("quarter_points", "Points", "int"),
+        ("points_per_minute", "Pts / Min", "decimal"),
+        ("competitive_scoring_share", "Comp Share", "pct1"),
+        ("avg_abs_margin_during_scoring_events", "Avg Abs Margin", "decimal"),
+        ("share_points_from_3s", "3PT Share", "pct1"),
+        ("share_points_from_fts", "FT Share", "pct1"),
+    ],
+    "half": [
+        ("rank", "#", "text"),
+        ("player_name", "Player", "text"),
+        ("team_tricode", "Team", "text"),
+        ("opponent_team_tricode", "Opp", "text"),
+        ("game_date", "Date", "text"),
+        ("entity_label", "Segment", "text"),
+        ("half_points", "Points", "int"),
+        ("points_per_minute", "Pts / Min", "decimal"),
+        ("competitive_scoring_share", "Comp Share", "pct1"),
+        ("avg_abs_margin_during_scoring_events", "Avg Abs Margin", "decimal"),
+        ("share_points_from_3s", "3PT Share", "pct1"),
+        ("share_points_from_fts", "FT Share", "pct1"),
+    ],
+    "burst": [
+        ("rank", "#", "text"),
+        ("player_name", "Player", "text"),
+        ("team_tricode", "Team", "text"),
+        ("opponent_team_tricode", "Opp", "text"),
+        ("game_date", "Date", "text"),
+        ("entity_label", "Burst", "text"),
+        ("points_in_window", "Points", "int"),
+        ("window_points_per_minute", "Pts / Min", "decimal"),
+        ("competitive_scoring_share", "Comp Share", "pct1"),
+        ("avg_abs_score_diff_in_window", "Avg Abs Margin", "decimal"),
+        ("share_points_from_3s", "3PT Share", "pct1"),
+        ("share_points_from_fts", "FT Share", "pct1"),
+    ],
+}
+
+_FILTER_CACHE: OrderedDict[tuple[Any, ...], pd.DataFrame] = OrderedDict()
 
 
 @dataclass(slots=True)
@@ -184,8 +254,18 @@ class DashboardSelection:
     payload: dict[str, Any]
 
 
+@dataclass(slots=True)
+class SavedBundle:
+    id: str
+    name: str
+    search: str
+    saved_at: str
+
+
 def normalize_filters(**kwargs: Any) -> DashboardFilters:
     entity_mode = str(kwargs.get("entity_mode") or DEFAULT_ENTITY_MODE).strip().lower()
+    if entity_mode not in VALID_ENTITY_MODES:
+        entity_mode = DEFAULT_ENTITY_MODE
     ranking_metric = str(
         kwargs.get("ranking_metric") or DEFAULT_RANKING_METRIC.get(entity_mode, DEFAULT_RANKING_METRIC["game"])
     ).strip()
@@ -193,14 +273,24 @@ def normalize_filters(**kwargs: Any) -> DashboardFilters:
     if ranking_metric not in valid_metrics:
         ranking_metric = DEFAULT_RANKING_METRIC.get(entity_mode, DEFAULT_RANKING_METRIC[DEFAULT_ENTITY_MODE])
     analysis_mode = str(kwargs.get("analysis_mode") or DEFAULT_ANALYSIS_MODE).strip().lower()
+    if analysis_mode not in VALID_ANALYSIS_MODES:
+        analysis_mode = DEFAULT_ANALYSIS_MODE
+    time_mode = str(kwargs.get("time_mode") or "raw").strip().lower()
+    if time_mode not in VALID_TIME_MODES:
+        time_mode = "raw"
+    line_color_mode = str(kwargs.get("line_color_mode") or "player").strip().lower()
+    if line_color_mode not in VALID_LINE_COLOR_MODES:
+        line_color_mode = "player"
+    burst_window = _normalize_window(kwargs.get("burst_window"), default=180)
+    analysis_window = _normalize_window(kwargs.get("analysis_window"), default=DEFAULT_ANALYSIS_WINDOW)
     return DashboardFilters(
         entity_mode=entity_mode,
         ranking_metric=ranking_metric,
-        time_mode=str(kwargs.get("time_mode") or "raw").strip().lower(),
-        burst_window=int(kwargs.get("burst_window") or 180),
+        time_mode=time_mode,
+        burst_window=burst_window,
         analysis_mode=analysis_mode,
-        analysis_window=int(kwargs.get("analysis_window") or DEFAULT_ANALYSIS_WINDOW),
-        line_color_mode=str(kwargs.get("line_color_mode") or "player").strip().lower(),
+        analysis_window=analysis_window,
+        line_color_mode=line_color_mode,
         show_shot_markers=bool(kwargs.get("show_shot_markers", True)),
         include_ot=bool(kwargs.get("include_ot", True)),
         competitive_only=bool(kwargs.get("competitive_only", False)),
@@ -234,15 +324,59 @@ def get_ranking_options(entity_mode: str) -> list[dict[str, str]]:
     return [{"label": label, "value": value} for value, label in RANKING_OPTIONS[normalized]]
 
 
-def get_preset_options() -> list[dict[str, str]]:
+def build_quick_view_options() -> list[dict[str, str]]:
     return [{"label": label, "value": value} for value, label in PRESET_OPTIONS]
+
+
+def get_preset_options() -> list[dict[str, str]]:
+    return build_quick_view_options()
+
+
+def get_preset_label(preset: str | None) -> str | None:
+    if preset is None:
+        return None
+    lookup = dict(PRESET_OPTIONS)
+    return lookup.get(str(preset).strip())
 
 
 def default_ranking_metric(entity_mode: str) -> str:
     return DEFAULT_RANKING_METRIC[str(entity_mode).strip().lower()]
 
 
+def serialize_saved_bundle(name: str, filters: DashboardFilters, selected_ids: list[str] | None) -> SavedBundle:
+    return SavedBundle(
+        id=f"bundle-{uuid4().hex[:12]}",
+        name=str(name).strip(),
+        search=encode_dashboard_state(filters, list(selected_ids or [])),
+        saved_at=datetime.now(UTC).isoformat(),
+    )
+
+
+def normalize_saved_bundles(payload: Any) -> list[SavedBundle]:
+    if not isinstance(payload, list):
+        return []
+    bundles: list[SavedBundle] = []
+    for item in payload:
+        if not isinstance(item, dict):
+            continue
+        bundle_id = _clean_text(item.get("id"))
+        name = _clean_text(item.get("name"))
+        search = _clean_text(item.get("search"))
+        saved_at = _clean_text(item.get("saved_at"))
+        if not bundle_id or not name or search is None or saved_at is None:
+            continue
+        bundles.append(SavedBundle(id=bundle_id, name=name, search=search, saved_at=saved_at))
+    bundles.sort(key=lambda bundle: bundle.saved_at, reverse=True)
+    return bundles[:MAX_SAVED_BUNDLES]
+
+
 def filter_summary_frame(datasets: DashboardDatasets, filters: DashboardFilters) -> pd.DataFrame:
+    cache_key = _filter_cache_key(datasets, filters)
+    cached = _FILTER_CACHE.get(cache_key)
+    if cached is not None:
+        _FILTER_CACHE.move_to_end(cache_key)
+        return cached.copy()
+
     frame = get_entity_frame(datasets, filters.entity_mode).copy()
     if frame.empty:
         return frame
@@ -280,36 +414,34 @@ def filter_summary_frame(datasets: DashboardDatasets, filters: DashboardFilters)
         ranking_metric=filters.ranking_metric,
         sort_by=filters.ranking_metric,
         ascending=False,
-    )
-    return filtered.reset_index(drop=True)
+    ).reset_index(drop=True)
+    _remember_filter_cache(cache_key, filtered)
+    return filtered.copy()
 
 
 def build_leaderboard_table(
     summary_df: pd.DataFrame,
     filters: DashboardFilters,
     limit: int = 50,
-) -> tuple[list[dict[str, Any]], list[dict[str, str]]]:
+) -> tuple[list[dict[str, Any]], list[dict[str, str]], dict[str, Any]]:
+    column_specs = _leaderboard_column_specs(filters.entity_mode, filters.ranking_metric)
     if summary_df.empty:
-        return [], _leaderboard_columns()
+        return [], _leaderboard_columns(column_specs), _leaderboard_style_metadata(column_specs, None)
 
-    point_column = {
-        "game": "final_points",
-        "quarter": "quarter_points",
-        "half": "half_points",
-        "burst": "points_in_window",
-    }[filters.entity_mode]
-    rate_column = "window_points_per_minute" if filters.entity_mode == "burst" else "points_per_minute"
     working = summary_df.head(limit).copy()
     working["rank"] = range(1, len(working) + 1)
     working["entity_label"] = working.apply(lambda row: entity_label_from_row(row, filters.entity_mode), axis=1)
     working["selection_id"] = working.apply(lambda row: selection_id_from_row(row, filters.entity_mode), axis=1)
     working["id"] = working["selection_id"]
-    working["primary_points"] = pd.to_numeric(working[point_column], errors="coerce")
-    working["rate_value"] = pd.to_numeric(working.get(rate_column), errors="coerce")
-    working["competitive_share_value"] = pd.to_numeric(working.get("competitive_scoring_share"), errors="coerce")
-    working["date_label"] = working["game_date"].astype(str)
-    working["era_label"] = working.get("era", pd.Series(dtype="object")).astype(str) if "era" in working.columns else ""
-    return working.to_dict(orient="records"), _leaderboard_columns()
+
+    for column_id, _, column_type in column_specs:
+        display_id = _display_id(column_id)
+        working[display_id] = _format_display_series(working, column_id, column_type)
+
+    records = working.to_dict(orient="records")
+    highlight_column = _highlight_display_id(filters.entity_mode, filters.ranking_metric)
+    style_meta = _leaderboard_style_metadata(column_specs, highlight_column)
+    return records, _leaderboard_columns(column_specs), style_meta
 
 
 def select_records(
@@ -474,24 +606,181 @@ def filter_values_from_filters(filters: DashboardFilters) -> dict[str, Any]:
     }
 
 
-def _leaderboard_columns() -> list[dict[str, str]]:
-    return [
-        {"name": "#", "id": "rank"},
-        {"name": "Player", "id": "player_name"},
-        {"name": "Team", "id": "team_tricode"},
-        {"name": "Opp", "id": "opponent_team_tricode"},
-        {"name": "Date", "id": "date_label"},
-        {"name": "Era", "id": "era_label"},
-        {"name": "Segment", "id": "entity_label"},
-        {"name": "Points", "id": "primary_points"},
-        {"name": "Rate", "id": "rate_value"},
-        {"name": "Comp Share", "id": "competitive_share_value"},
+def _leaderboard_columns(column_specs: list[tuple[str, str, str]]) -> list[dict[str, str]]:
+    return [{"name": label, "id": _display_id(column_id)} for column_id, label, _ in column_specs]
+
+
+def _leaderboard_column_specs(entity_mode: str, ranking_metric: str) -> list[tuple[str, str, str]]:
+    specs = list(LEADERBOARD_BASE_SPECS[entity_mode])
+    source_column = _ranking_source_column(entity_mode, ranking_metric)
+    if source_column not in {column_id for column_id, _, _ in specs}:
+        specs.append(
+            (
+                source_column,
+                _ranking_metric_label(entity_mode, ranking_metric),
+                _column_type_for_metric(source_column),
+            )
+        )
+    return specs
+
+
+def _leaderboard_style_metadata(
+    column_specs: list[tuple[str, str, str]],
+    highlight_display_id: str | None,
+) -> dict[str, Any]:
+    numeric_columns = [
+        _display_id(column_id)
+        for column_id, _, column_type in column_specs
+        if column_type != "text" and column_id != "rank"
     ]
+    style_cell_conditional = [{"if": {"column_id": column_id}, "textAlign": "right"} for column_id in numeric_columns]
+    style_data_conditional: list[dict[str, Any]] = [
+        {
+            "if": {"state": "selected"},
+            "backgroundColor": "#efe5d7",
+            "border": "none",
+        }
+    ]
+    style_header_conditional: list[dict[str, Any]] = []
+    if highlight_display_id:
+        style_header_conditional.append(
+            {
+                "if": {"column_id": highlight_display_id},
+                "backgroundColor": "#d8c5a9",
+                "color": "#1f1b18",
+            }
+        )
+        style_data_conditional.append(
+            {
+                "if": {"column_id": highlight_display_id},
+                "backgroundColor": "rgba(216, 197, 169, 0.28)",
+            }
+        )
+    return {
+        "highlight_column_id": highlight_display_id,
+        "style_cell_conditional": style_cell_conditional,
+        "style_header_conditional": style_header_conditional,
+        "style_data_conditional": style_data_conditional,
+    }
+
+
+def _format_display_series(df: pd.DataFrame, column_id: str, column_type: str) -> pd.Series:
+    if column_id == "rank":
+        return df["rank"]
+    series = df.get(column_id, pd.Series(index=df.index, dtype="object"))
+    if column_type == "text":
+        return series.fillna("").astype(str)
+    numeric = pd.to_numeric(series, errors="coerce")
+    if column_type == "int":
+        return numeric.map(lambda value: "NA" if pd.isna(value) else f"{int(round(float(value)))}")
+    if column_type == "decimal":
+        return numeric.map(lambda value: "NA" if pd.isna(value) else f"{float(value):.1f}")
+    if column_type == "pct1":
+        return numeric.map(lambda value: "NA" if pd.isna(value) else f"{float(value):.1%}")
+    return series.fillna("").astype(str)
+
+
+def _ranking_source_column(entity_mode: str, ranking_metric: str) -> str:
+    point_columns = {
+        "game": "final_points",
+        "quarter": "quarter_points",
+        "half": "half_points",
+        "burst": "points_in_window",
+    }
+    aliases = {
+        "total_points": point_columns[entity_mode],
+        "points_per_minute": "window_points_per_minute" if entity_mode == "burst" else "points_per_minute",
+        "avg_abs_margin_during_scoring_events": "avg_abs_score_diff_in_window"
+        if entity_mode == "burst"
+        else "avg_abs_margin_during_scoring_events",
+    }
+    return aliases.get(ranking_metric, ranking_metric)
+
+
+def _ranking_metric_label(entity_mode: str, ranking_metric: str) -> str:
+    options = dict(RANKING_OPTIONS[entity_mode])
+    return options.get(ranking_metric, ranking_metric.replace("_", " ").title())
+
+
+def _column_type_for_metric(column_id: str) -> str:
+    if column_id in {
+        "player_name",
+        "team_tricode",
+        "opponent_team_tricode",
+        "game_date",
+        "entity_label",
+    }:
+        return "text"
+    if column_id.endswith("_share") or column_id in {"ts_pct", "efg_pct", "competitive_scoring_share"}:
+        return "pct1"
+    if "points" in column_id or column_id.endswith("_margin") or column_id.endswith("_window"):
+        if column_id in {
+            "points_per_minute",
+            "window_points_per_minute",
+            "avg_abs_margin_during_scoring_events",
+            "avg_abs_score_diff_in_window",
+            "peak_projected_48",
+            "trailing_scoring_rate",
+        }:
+            return "decimal"
+        return "int"
+    if column_id in {
+        "offensive_share",
+        "share_points_from_3s",
+        "share_points_from_fts",
+    }:
+        return "pct1"
+    return "decimal"
+
+
+def _display_id(column_id: str) -> str:
+    if column_id in {"rank", "player_name", "team_tricode", "opponent_team_tricode", "entity_label"}:
+        return column_id
+    return f"{column_id}_display"
+
+
+def _highlight_display_id(entity_mode: str, ranking_metric: str) -> str:
+    return _display_id(_ranking_source_column(entity_mode, ranking_metric))
 
 
 def _options_from_series(series: pd.Series) -> list[dict[str, str]]:
     values = sorted({str(value) for value in series.dropna().tolist() if str(value).strip()})
     return [{"label": value, "value": value} for value in values]
+
+
+def _filter_cache_key(datasets: DashboardDatasets, filters: DashboardFilters) -> tuple[Any, ...]:
+    return (
+        getattr(datasets, "summary_signature", ()),
+        filters.entity_mode,
+        filters.ranking_metric,
+        filters.time_mode,
+        filters.burst_window,
+        filters.analysis_mode,
+        filters.analysis_window,
+        filters.line_color_mode,
+        filters.show_shot_markers,
+        filters.include_ot,
+        filters.competitive_only,
+        filters.min_points,
+        filters.min_competitive_share,
+        filters.min_ts_pct,
+        filters.min_efg_pct,
+        filters.min_offensive_share,
+        filters.player,
+        filters.team,
+        filters.opponent,
+        filters.season,
+        filters.season_type,
+        filters.era,
+        filters.preset,
+    )
+
+
+def _remember_filter_cache(cache_key: tuple[Any, ...], frame: pd.DataFrame) -> None:
+    _FILTER_CACHE[cache_key] = frame.copy()
+    _FILTER_CACHE.move_to_end(cache_key)
+    while len(_FILTER_CACHE) > FILTER_CACHE_SIZE:
+        _FILTER_CACHE.popitem(last=False)
 
 
 def _first_param(params: dict[str, list[str]], field_name: str) -> str | None:
@@ -522,8 +811,19 @@ def _coerce_bool(value: Any, *, default: bool) -> bool:
     return default
 
 
+def _normalize_window(value: Any, *, default: int) -> int:
+    numeric = _coerce_int(value)
+    if numeric is None:
+        return default
+    return numeric if numeric in VALID_WINDOW_SECONDS else default
+
+
 def _clean_text(value: Any) -> str | None:
     if value is None:
         return None
     text = str(value).strip()
     return text or None
+
+
+def saved_bundles_payload(bundles: list[SavedBundle]) -> list[dict[str, str]]:
+    return [asdict(bundle) for bundle in bundles]
