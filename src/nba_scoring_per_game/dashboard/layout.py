@@ -113,7 +113,7 @@ def build_dashboard_layout(datasets: DashboardDatasets) -> html.Div:
                             build_brand_lockup(
                                 id="hero-brand-lockup",
                                 title=None,
-                                kicker="The NBA's Greatest Single Game Scoring Performances",
+                                kicker="The NBA's Greatest Scoring Performances",
                                 class_name="hero-subhead",
                             ),
                         ]

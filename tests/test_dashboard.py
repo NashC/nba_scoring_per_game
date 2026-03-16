@@ -207,7 +207,7 @@ class DashboardTests(unittest.TestCase):
             self.assertIsNone(find_component_by_id(app.layout, "app-guide"))
             layout_text = flatten_component_text(app.layout)
             self.assertIn("🏀 🔥 Heat Check", layout_text)
-            self.assertIn("The NBA's Greatest Single Game Scoring Performances", layout_text)
+            self.assertIn("The NBA's Greatest Scoring Performances", layout_text)
             self.assertIn("Seasons", layout_text)
             self.assertIn("2023-2024", layout_text)
             self.assertIn("Filters and Compare", layout_text)
