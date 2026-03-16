@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="utf-8"?>
+<svg version="1.1" id="NYK_1977" xmlns="http://www.w3.org/2000/svg" x="0px" y="0px"
+	 viewBox="0 0 400 400" style="enable-background:new 0 0 400 400;" xml:space="preserve">
+<style type="text/css">
+	.st0{fill:#006BB6;}
+	.st1{fill:#F58426;}
+	.st2{fill:#FFFFFF;}
+	.st3{fill:none;stroke:#006BB6;stroke-width:8;stroke-linecap:round;}
+	.st4{font-family:'Trebuchet MS','Arial',sans-serif;font-weight:700;}
+</style>
+<g>
+	<circle class="st0" cx="200" cy="200" r="176"/>
+	<polygon class="st2" points="200,50 328,124 328,276 200,350 72,276 72,124"/>
+	<circle class="st1" cx="200" cy="220" r="92"/>
+	<path class="st3" d="M108,220h184"/>
+	<path class="st3" d="M200,128c18.2,22.2,28.2,57.4,28.2,92S218.2,289.8,200,312"/>
+	<path class="st3" d="M200,128c-18.2,22.2-28.2,57.4-28.2,92S181.8,289.8,200,312"/>
+	<text x="200" y="108" text-anchor="middle" class="st0 st4" font-size="24" letter-spacing="4">NEW YORK</text>
+	<text x="208" y="228" text-anchor="middle" class="st0 st4" font-size="58" letter-spacing="4"
+		transform="rotate(-16 208 228)">KNICKS</text>
+</g>
+</svg>

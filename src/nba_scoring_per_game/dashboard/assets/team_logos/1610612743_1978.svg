@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="utf-8"?>
+<svg version="1.1" id="DEN_1978" xmlns="http://www.w3.org/2000/svg" x="0px" y="0px"
+	 viewBox="0 0 400 400" style="enable-background:new 0 0 400 400;" xml:space="preserve">
+<style type="text/css">
+	.st0{fill:#0E2240;}
+	.st1{fill:#FEC524;}
+	.st2{fill:#C8102E;}
+	.st3{fill:#FFFFFF;}
+	.st4{font-family:'Trebuchet MS','Arial',sans-serif;font-weight:700;}
+</style>
+<g>
+	<circle class="st0" cx="200" cy="200" r="176"/>
+	<polygon class="st1" points="90,236 144,152 186,204 212,164 290,272"/>
+	<circle class="st1" cx="264" cy="138" r="18"/>
+	<rect x="158" y="92" transform="matrix(0.7071 -0.7071 0.7071 0.7071 -34.3503 185.7673)" class="st3" width="98" height="84"/>
+	<rect x="184" y="72" transform="matrix(0.7071 -0.7071 0.7071 0.7071 -23.5059 212.2009)" class="st0" width="121" height="125"/>
+	<rect x="186" y="122" transform="matrix(0.7071 -0.7071 0.7071 0.7071 -26.9714 204.9078)" class="st1" width="96" height="26"/>
+	<polygon class="st2" points="74,262 326,262 302,314 98,314"/>
+	<text x="200" y="104" text-anchor="middle" class="st3 st4" font-size="24" letter-spacing="5">DENVER</text>
+	<text x="200" y="300" text-anchor="middle" class="st3 st4" font-size="40" letter-spacing="5">NUGGETS</text>
+</g>
+</svg>

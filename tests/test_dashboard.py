@@ -12,10 +12,12 @@ from nba_scoring_per_game.dashboard import LiveLogo3D, create_dashboard_app, loa
 from nba_scoring_per_game.dashboard.app import _updated_url_search
 from nba_scoring_per_game.dashboard.layout import (
     _player_headshot,
+    _team_logo_img,
     build_chart_summary_strip,
     build_comparison_tray,
     build_detail_card,
 )
+from nba_scoring_per_game.dashboard.team_logos import resolve_team_logo_asset_src
 from nba_scoring_per_game.dashboard.charts import (
     MARGIN_COLORS,
     build_rolling_analysis_series,
@@ -24,6 +26,7 @@ from nba_scoring_per_game.dashboard.charts import (
 )
 from nba_scoring_per_game.dashboard.state import (
     DashboardFilters,
+    _team_logo_markdown,
     build_quick_view_options,
     apply_dashboard_preset,
     build_leaderboard_table,
@@ -34,6 +37,7 @@ from nba_scoring_per_game.dashboard.state import (
     normalize_saved_bundles,
     serialize_saved_bundle,
 )
+from nba_scoring_per_game.manual_games import WILT_100_TEAM_ID, WILT_100_TEAM_TRICODE
 from nba_scoring_per_game.pipeline import DATASET_METADATA_FILENAME, DATASET_SCHEMA_VERSION
 from tests.fixtures import build_test_outputs, find_component_by_id, flatten_component_text, write_manual_approximation_note
 
@@ -80,6 +84,35 @@ class DashboardTests(unittest.TestCase):
         self.assertEqual(props["style"]["--live-logo-size"], "48.5px")
         with self.assertRaisesRegex(ValueError, "size must be positive"):
             LiveLogo3D(size=0)
+
+    def test_wilt_legacy_team_logo_renders_from_custom_asset(self) -> None:
+        logo = _team_logo_img(WILT_100_TEAM_ID, WILT_100_TEAM_TRICODE, "1962-03-02")
+        props = logo.to_plotly_json()["props"]
+
+        self.assertEqual(props["src"], f"/assets/team_logos/{WILT_100_TEAM_ID}.svg")
+        self.assertEqual(props["alt"], WILT_100_TEAM_TRICODE)
+        self.assertIn(
+            f"/assets/team_logos/{WILT_100_TEAM_ID}.svg",
+            _team_logo_markdown(WILT_100_TEAM_ID, WILT_100_TEAM_TRICODE, "1962-03-02"),
+        )
+
+    def test_legacy_game_dates_resolve_historical_team_logo_assets(self) -> None:
+        cases = [
+            (1610612747, "1960-11-15", "/assets/team_logos/1610612747_1960.svg"),
+            (1610612752, "1962-03-02", "/assets/team_logos/1610612752_1963.svg"),
+            (1610612752, "1977-02-25", "/assets/team_logos/1610612752_1977.svg"),
+            (1610612743, "1978-04-09", "/assets/team_logos/1610612743_1978.svg"),
+            (1610612765, "1978-04-09", "/assets/team_logos/1610612765_1978.svg"),
+            (1610612739, "1990-03-28", "/assets/team_logos/1610612739_1990.svg"),
+            (1610612759, "1994-04-24", "/assets/team_logos/1610612759_1994.svg"),
+            (1610612746, "1994-04-24", "/assets/team_logos/1610612746_1994.svg"),
+            (990002, "1977-02-25", "/assets/team_logos/990002.svg"),
+            (1610612741, "1990-03-28", "/assets/team_logos/1610612741.svg"),
+        ]
+
+        for team_id, game_date, expected_src in cases:
+            with self.subTest(team_id=team_id, game_date=game_date):
+                self.assertEqual(resolve_team_logo_asset_src(team_id, game_date), expected_src)
 
     def test_filter_values_drop_non_finite_numeric_values(self) -> None:
         filters = DashboardFilters(

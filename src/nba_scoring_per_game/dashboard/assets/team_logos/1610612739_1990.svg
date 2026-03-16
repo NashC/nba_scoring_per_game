@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="utf-8"?>
+<svg version="1.1" id="CLE_1990" xmlns="http://www.w3.org/2000/svg" x="0px" y="0px"
+	 viewBox="0 0 400 400" style="enable-background:new 0 0 400 400;" xml:space="preserve">
+<style type="text/css">
+	.st0{fill:#041E42;}
+	.st1{fill:#860038;}
+	.st2{fill:#FDBB30;}
+	.st3{fill:#FFFFFF;}
+	.st4{fill:none;stroke:#041E42;stroke-width:8;stroke-linecap:round;}
+	.st5{font-family:'Trebuchet MS','Arial',sans-serif;font-weight:700;}
+</style>
+<g>
+	<circle class="st0" cx="200" cy="200" r="176"/>
+	<circle class="st3" cx="200" cy="200" r="154"/>
+	<circle class="st2" cx="200" cy="164" r="64"/>
+	<path class="st4" d="M136,164h128"/>
+	<path class="st4" d="M200,100c12.6,15.8,19.5,40.5,19.5,64s-6.9,48.2-19.5,64"/>
+	<path class="st4" d="M200,100c-12.6,15.8-19.5,40.5-19.5,64s6.9,48.2,19.5,64"/>
+	<path class="st0" d="M138,228h124l-16,74h-92L138,228z"/>
+	<path class="st3" d="M156,238h88l-5,21h-78L156,238z M162,267h76l-5,21h-66L162,267z"/>
+	<text x="200" y="352" text-anchor="middle" class="st1 st5" font-size="52" letter-spacing="6">CAVS</text>
+</g>
+</svg>

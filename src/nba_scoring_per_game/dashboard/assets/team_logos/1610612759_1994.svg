@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="utf-8"?>
+<svg version="1.1" id="SAS_1994" xmlns="http://www.w3.org/2000/svg" x="0px" y="0px"
+	 viewBox="0 0 400 400" style="enable-background:new 0 0 400 400;" xml:space="preserve">
+<style type="text/css">
+	.st0{fill:#000000;}
+	.st1{fill:#C4CED4;}
+	.st2{fill:#C4CED4;stroke:#000000;stroke-width:6;}
+	.st3{fill:#ED174C;}
+	.st4{fill:#00A4B4;}
+	.st5{fill:#FFB612;}
+	.st6{fill:#FFFFFF;}
+	.st7{font-family:'Trebuchet MS','Arial',sans-serif;font-weight:700;}
+</style>
+<g>
+	<circle class="st0" cx="200" cy="200" r="176"/>
+	<circle class="st6" cx="200" cy="200" r="152"/>
+	<circle class="st3" cx="146" cy="118" r="18"/>
+	<circle class="st4" cx="200" cy="102" r="18"/>
+	<circle class="st5" cx="254" cy="118" r="18"/>
+	<text x="200" y="198" text-anchor="middle" class="st0 st7" font-size="64" letter-spacing="6">SPURS</text>
+	<path class="st2" d="M184,220h32l-6,74h-20L184,220z"/>
+	<polygon class="st1" points="200,236 176,262 188,262 178,296 200,280 222,296 212,262 224,262"/>
+	<text x="200" y="330" text-anchor="middle" class="st0 st7" font-size="22" letter-spacing="5">SAN ANTONIO</text>
+</g>
+</svg>

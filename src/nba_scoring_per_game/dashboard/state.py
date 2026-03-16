@@ -4,7 +4,6 @@ from collections import OrderedDict
 from dataclasses import asdict, dataclass
 from datetime import datetime, UTC
 import math
-from pathlib import Path
 from typing import Any
 from urllib.parse import parse_qs, urlencode
 from uuid import uuid4
@@ -13,6 +12,7 @@ import pandas as pd
 
 from ..pipeline import query_player_games
 from .loader import DashboardDatasets
+from .team_logos import resolve_team_logo_asset_src
 
 MAX_COMPARISONS = 4
 MAX_SAVED_BUNDLES = 12
@@ -250,7 +250,6 @@ ESTIMATED_LEADERBOARD_COLUMNS = {
 }
 
 _FILTER_CACHE: OrderedDict[tuple[Any, ...], pd.DataFrame] = OrderedDict()
-_TEAM_LOGO_DIR = Path(__file__).with_name("assets") / "team_logos"
 
 
 @dataclass(slots=True)
@@ -697,14 +696,6 @@ def _leaderboard_style_metadata(
         if column_type != "text" and column_id != "rank"
     ]
     style_cell_conditional = [{"if": {"column_id": column_id}, "textAlign": "right"} for column_id in numeric_columns]
-    for column_id, _, column_type in column_specs:
-        if column_type == "markdown":
-            style_cell_conditional.append(
-                {
-                    "if": {"column_id": _display_id(column_id)},
-                    "textAlign": "center",
-                }
-            )
     style_data_conditional: list[dict[str, Any]] = [
         {
             "if": {"state": "selected"},
@@ -712,6 +703,25 @@ def _leaderboard_style_metadata(
             "border": "none",
         }
     ]
+    for column_id, _, column_type in column_specs:
+        if column_type == "markdown":
+            style_cell_conditional.append(
+                {
+                    "if": {"column_id": _display_id(column_id)},
+                    "textAlign": "center",
+                    "overflow": "visible",
+                    "position": "relative",
+                }
+            )
+            style_data_conditional.append(
+                {
+                    "if": {"column_id": _display_id(column_id)},
+                    "paddingTop": "0px",
+                    "paddingBottom": "0px",
+                    "paddingLeft": "3px",
+                    "paddingRight": "3px",
+                }
+            )
     style_header_conditional: list[dict[str, Any]] = []
     if highlight_display_id:
         style_header_conditional.append(
@@ -938,28 +948,33 @@ def _display_id(column_id: str) -> str:
     return f"{column_id}_display"
 
 
-def _team_logo_markdown_series(df: pd.DataFrame, team_id_column: str, tricode_column: str) -> pd.Series:
+def _team_logo_markdown_series(
+    df: pd.DataFrame,
+    team_id_column: str,
+    tricode_column: str,
+    game_date_column: str = "game_date",
+) -> pd.Series:
+    game_dates = df.get(game_date_column, pd.Series(index=df.index))
     return pd.Series(
         [
-            _team_logo_markdown(team_id, tricode)
-            for team_id, tricode in zip(df.get(team_id_column, pd.Series(index=df.index)), df.get(tricode_column, pd.Series(index=df.index)))
+            _team_logo_markdown(team_id, tricode, game_date)
+            for team_id, tricode, game_date in zip(
+                df.get(team_id_column, pd.Series(index=df.index)),
+                df.get(tricode_column, pd.Series(index=df.index)),
+                game_dates,
+            )
         ],
         index=df.index,
         dtype="object",
     )
 
 
-def _team_logo_markdown(team_id: Any, tricode: Any) -> str:
+def _team_logo_markdown(team_id: Any, tricode: Any, game_date: Any = None) -> str:
     tri = "" if tricode in {None, "", "None"} else str(tricode).strip()
-    try:
-        numeric_team_id = int(team_id)
-    except (TypeError, ValueError):
-        numeric_team_id = None
-    logo_path = _TEAM_LOGO_DIR / f"{numeric_team_id}.svg" if numeric_team_id is not None else None
-    if numeric_team_id is None or logo_path is None or not logo_path.exists():
+    src = resolve_team_logo_asset_src(team_id, game_date)
+    if src is None:
         return tri
-    src = f"/assets/team_logos/{numeric_team_id}.svg"
-    title = tri or str(numeric_team_id)
+    title = tri or str(team_id)
     return (
         f'<div class="table-team-logo-wrap">'
         f'<img src="{src}" alt="{title}" title="{title}" class="table-team-logo" />'

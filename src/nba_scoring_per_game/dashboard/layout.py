@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from functools import lru_cache
-from pathlib import Path
 from typing import Any
 
 from dash import dcc, html
@@ -30,8 +29,27 @@ from .state import (
     select_records,
     selection_from_record,
 )
+from .team_logos import resolve_team_logo_asset_src
 
-_TEAM_LOGO_DIR = Path(__file__).with_name("assets") / "team_logos"
+
+_LEADERBOARD_TABLE_CSS = [
+    {
+        "selector": 'td[data-dash-column="team_logo_display"], td[data-dash-column="opponent_team_logo_display"]',
+        "rule": "overflow: visible !important; position: relative; z-index: 1;",
+    },
+    {
+        "selector": 'td[data-dash-column="team_logo_display"]:hover, td[data-dash-column="opponent_team_logo_display"]:hover',
+        "rule": "overflow: visible !important; z-index: 20;",
+    },
+    {
+        "selector": 'td[data-dash-column="team_logo_display"] div.dash-cell-value, td[data-dash-column="opponent_team_logo_display"] div.dash-cell-value',
+        "rule": "overflow: visible !important;",
+    },
+    {
+        "selector": 'td[data-dash-column="team_logo_display"] p, td[data-dash-column="opponent_team_logo_display"] p',
+        "rule": "margin: 0; overflow: visible !important;",
+    },
+]
 _PLAYER_HEADSHOT_BASE_URL = "https://cdn.nba.com/headshots/nba/latest/260x190"
 _PLAYER_HEADSHOT_FALLBACK_SRC = "/assets/player-headshot-fallback.svg"
 
@@ -362,6 +380,7 @@ def build_dashboard_layout(datasets: DashboardDatasets) -> html.Div:
                                         id="leaderboard-table",
                                         data=initial_records,
                                         columns=initial_columns,
+                                        css=_LEADERBOARD_TABLE_CSS,
                                         tooltip_header=initial_styles["tooltip_header"],
                                         tooltip_data=initial_styles["tooltip_data"],
                                         tooltip_delay=0,
@@ -384,6 +403,8 @@ def build_dashboard_layout(datasets: DashboardDatasets) -> html.Div:
                                             "fontWeight": 700,
                                             "border": "none",
                                             "color": "#1f1b18",
+                                            "fontSize": "0.94rem",
+                                            "padding": "8px 6px",
                                         },
                                         style_header_conditional=initial_styles["style_header_conditional"],
                                         style_cell={
@@ -391,7 +412,9 @@ def build_dashboard_layout(datasets: DashboardDatasets) -> html.Div:
                                             "border": "none",
                                             "color": "#1f1b18",
                                             "fontFamily": "Avenir Next, Trebuchet MS, Helvetica Neue, sans-serif",
-                                            "padding": "10px 12px",
+                                            "fontSize": "0.95rem",
+                                            "lineHeight": "1.1",
+                                            "padding": "6px 6px",
                                             "textAlign": "left",
                                         },
                                         style_cell_conditional=initial_styles["style_cell_conditional"],
@@ -651,12 +674,18 @@ def build_detail_card(record: dict[str, Any], entity_mode: str, timeline_df):
                             html.Div(
                                 className="detail-card-subtitle detail-matchup-row",
                                 children=[
-                                    _team_logo_img(record.get("team_id"), record.get("team_tricode"), class_name="team-logo team-logo-medium"),
+                                    _team_logo_img(
+                                        record.get("team_id"),
+                                        record.get("team_tricode"),
+                                        record.get("game_date"),
+                                        class_name="team-logo team-logo-medium",
+                                    ),
                                     html.Span(record.get("team_tricode", ""), className="matchup-team-code"),
                                     html.Span("vs", className="matchup-vs"),
                                     _team_logo_img(
                                         record.get("opponent_team_id"),
                                         record.get("opponent_team_tricode"),
+                                        record.get("game_date"),
                                         class_name="team-logo team-logo-medium",
                                     ),
                                     html.Span(record.get("opponent_team_tricode", ""), className="matchup-team-code"),
@@ -697,7 +726,12 @@ def build_comparison_tray(selected_records: list[dict[str, Any]]):
             html.Div(
                 className="comparison-chip",
                 children=[
-                    _team_logo_img(record.get("team_id"), record.get("team_tricode"), class_name="team-logo team-logo-small comparison-chip-logo"),
+                    _team_logo_img(
+                        record.get("team_id"),
+                        record.get("team_tricode"),
+                        record.get("game_date"),
+                        class_name="team-logo team-logo-small comparison-chip-logo",
+                    ),
                     _player_headshot(record, class_name="player-headshot player-headshot-chip"),
                     html.Span(f"{player_name} · {record.get('entity_label')}", className="comparison-chip-label"),
                     html.Button(
@@ -754,6 +788,7 @@ def build_chart_summary_strip(selected_records: list[dict[str, Any]], entity_mod
                                                             _team_logo_img(
                                                                 record.get("team_id"),
                                                                 record.get("team_tricode"),
+                                                                record.get("game_date"),
                                                                 class_name="team-logo team-logo-small",
                                                             ),
                                                             html.Span(record.get("team_tricode", "")),
@@ -761,6 +796,7 @@ def build_chart_summary_strip(selected_records: list[dict[str, Any]], entity_mod
                                                             _team_logo_img(
                                                                 record.get("opponent_team_id"),
                                                                 record.get("opponent_team_tricode"),
+                                                                record.get("game_date"),
                                                                 class_name="team-logo team-logo-small",
                                                             ),
                                                             html.Span(record.get("opponent_team_tricode", "")),
@@ -983,19 +1019,21 @@ def _player_headshot(record: dict[str, Any], *, class_name: str = "player-headsh
     )
 
 
-def _team_logo_img(team_id: Any, tricode: Any, *, class_name: str = "team-logo") -> html.Span | html.Img:
+def _team_logo_img(
+    team_id: Any,
+    tricode: Any,
+    game_date: Any = None,
+    *,
+    class_name: str = "team-logo",
+) -> html.Span | html.Img:
     tri = "" if tricode in {None, "", "None"} else str(tricode).strip()
-    try:
-        numeric_team_id = int(team_id)
-    except (TypeError, ValueError):
-        numeric_team_id = None
-    logo_path = _TEAM_LOGO_DIR / f"{numeric_team_id}.svg" if numeric_team_id is not None else None
-    if numeric_team_id is None or logo_path is None or not logo_path.exists():
+    src = resolve_team_logo_asset_src(team_id, game_date)
+    if src is None:
         return html.Span(tri, className=f"{class_name} team-logo-fallback".strip())
     return html.Img(
-        src=f"/assets/team_logos/{numeric_team_id}.svg",
-        alt=tri or str(numeric_team_id),
-        title=tri or str(numeric_team_id),
+        src=src,
+        alt=tri or str(team_id),
+        title=tri or str(team_id),
         className=class_name,
     )
 

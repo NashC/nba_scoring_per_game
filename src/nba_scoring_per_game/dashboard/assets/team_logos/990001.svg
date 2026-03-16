@@ -1,0 +1,34 @@
+<?xml version="1.0" encoding="utf-8"?>
+<svg version="1.1" id="PHW_1962" xmlns="http://www.w3.org/2000/svg" x="0px" y="0px"
+	 viewBox="0 0 400 400" style="enable-background:new 0 0 400 400;" xml:space="preserve">
+<style type="text/css">
+	.st0{fill:#FFC72C;}
+	.st1{fill:#1D428A;}
+	.st2{fill:#FFFFFF;}
+	.st3{fill:#C8102E;}
+	.st4{fill:#F58426;}
+	.st5{fill:none;stroke:#1D428A;stroke-width:8;stroke-linecap:round;stroke-linejoin:round;}
+	.st6{font-family:'Trebuchet MS','Arial',sans-serif;font-weight:700;}
+</style>
+<g>
+	<circle class="st0" cx="200" cy="200" r="176"/>
+	<circle class="st1" cx="200" cy="200" r="164"/>
+	<circle class="st0" cx="200" cy="200" r="142"/>
+	<circle class="st2" cx="200" cy="200" r="126"/>
+	<polygon class="st3" points="200,70 206.8,84.1 222.3,86.3 211.1,97.1 213.8,112.3 200,105 186.2,112.3 188.9,97.1 177.7,86.3
+		193.2,84.1"/>
+	<polygon class="st3" points="95,152 101.8,166.1 117.3,168.3 106.1,179.1 108.8,194.3 95,187 81.2,194.3 83.9,179.1 72.7,168.3
+		88.2,166.1"/>
+	<polygon class="st3" points="305,152 311.8,166.1 327.3,168.3 316.1,179.1 318.8,194.3 305,187 291.2,194.3 293.9,179.1
+		282.7,168.3 298.2,166.1"/>
+	<circle class="st4" cx="200" cy="216" r="82"/>
+	<path class="st5" d="M118,216c0-45.3,36.7-82,82-82s82,36.7,82,82s-36.7,82-82,82S118,261.3,118,216z"/>
+	<path class="st5" d="M200,134c17,20.1,26.2,51.3,26.2,82s-9.2,61.9-26.2,82"/>
+	<path class="st5" d="M200,134c-17,20.1-26.2,51.3-26.2,82s9.2,61.9,26.2,82"/>
+	<path class="st5" d="M120.7,192.4c20.1,17,51.3,26.2,79.3,26.2s59.2-9.2,79.3-26.2"/>
+	<path class="st5" d="M120.7,239.6c20.1-17,51.3-26.2,79.3-26.2s59.2,9.2,79.3,26.2"/>
+	<text x="200" y="112" text-anchor="middle" class="st2 st6" font-size="38" letter-spacing="6">PHILA</text>
+	<text x="200" y="338" text-anchor="middle" class="st2 st6" font-size="28" letter-spacing="5">WARRIORS</text>
+	<text x="200" y="228" text-anchor="middle" class="st3 st6" font-size="74" letter-spacing="8">PHW</text>
+</g>
+</svg>

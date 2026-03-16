@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="utf-8"?>
+<svg version="1.1" id="NYK_1963" xmlns="http://www.w3.org/2000/svg" x="0px" y="0px"
+	 viewBox="0 0 400 400" style="enable-background:new 0 0 400 400;" xml:space="preserve">
+<style type="text/css">
+	.st0{fill:#F58426;}
+	.st1{fill:#006BB6;}
+	.st2{fill:#FFFFFF;}
+	.st3{font-family:'Trebuchet MS','Arial',sans-serif;font-weight:700;}
+	.st4{fill:none;stroke:#006BB6;stroke-width:8;stroke-linecap:round;}
+</style>
+<g>
+	<circle class="st1" cx="200" cy="200" r="176"/>
+	<circle class="st2" cx="200" cy="200" r="154"/>
+	<circle class="st0" cx="200" cy="228" r="102"/>
+	<path class="st4" d="M98,228h204"/>
+	<path class="st4" d="M200,126c20.3,24.4,31.4,63,31.4,102S220.3,305.6,200,330"/>
+	<path class="st4" d="M200,126c-20.3,24.4-31.4,63-31.4,102S179.7,305.6,200,330"/>
+	<path class="st1" d="M156,118h88l-12-30h-64L156,118z"/>
+	<rect x="177" y="118" class="st1" width="46" height="34"/>
+	<text x="200" y="90" text-anchor="middle" class="st1 st3" font-size="24" letter-spacing="4">NEW YORK</text>
+	<text x="200" y="238" text-anchor="middle" class="st1 st3" font-size="52" letter-spacing="5">KNICKS</text>
+</g>
+</svg>

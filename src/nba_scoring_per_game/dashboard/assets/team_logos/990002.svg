@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8"?>
+<svg version="1.1" id="NOJ_1977" xmlns="http://www.w3.org/2000/svg" x="0px" y="0px"
+	 viewBox="0 0 400 400" style="enable-background:new 0 0 400 400;" xml:space="preserve">
+<style type="text/css">
+	.st0{fill:#552583;}
+	.st1{fill:#FDB927;}
+	.st2{fill:#00843D;}
+	.st3{fill:#FFFFFF;}
+	.st4{font-family:'Trebuchet MS','Arial',sans-serif;font-weight:700;}
+</style>
+<g>
+	<circle class="st0" cx="200" cy="200" r="176"/>
+	<circle class="st3" cx="200" cy="200" r="148"/>
+	<path class="st0" d="M186,92h54v134c0,43.1-29.8,74-81,84l-13-33c32.8-7.4,40-24.1,40-45.1V92z"/>
+	<circle class="st1" cx="152" cy="296" r="34"/>
+	<rect x="228" y="110" class="st2" width="30" height="94"/>
+	<circle class="st2" cx="242" cy="110" r="24"/>
+	<text x="200" y="80" text-anchor="middle" class="st0 st4" font-size="24" letter-spacing="5">NEW ORLEANS</text>
+	<text x="260" y="282" text-anchor="middle" class="st0 st4" font-size="54" letter-spacing="5">JAZZ</text>
+</g>
+</svg>

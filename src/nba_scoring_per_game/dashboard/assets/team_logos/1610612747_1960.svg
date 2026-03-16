@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="utf-8"?>
+<svg version="1.1" id="LAL_1960" xmlns="http://www.w3.org/2000/svg" x="0px" y="0px"
+	 viewBox="0 0 400 400" style="enable-background:new 0 0 400 400;" xml:space="preserve">
+<style type="text/css">
+	.st0{fill:#1D428A;}
+	.st1{fill:#FFFFFF;}
+	.st2{fill:none;stroke:#FFFFFF;stroke-width:8;stroke-linecap:round;}
+	.st3{font-family:'Trebuchet MS','Arial',sans-serif;font-weight:700;}
+</style>
+<g>
+	<circle class="st0" cx="200" cy="200" r="176"/>
+	<circle class="st1" cx="200" cy="200" r="134"/>
+	<path class="st2" d="M66,200h268"/>
+	<path class="st2" d="M200,66c28,32.8,43.5,84.9,43.5,134S228,301.2,200,334"/>
+	<path class="st2" d="M200,66c-28,32.8-43.5,84.9-43.5,134S172,301.2,200,334"/>
+	<path class="st2" d="M88,158c28.7,20,69.8,31.4,112,31.4s83.3-11.4,112-31.4"/>
+	<path class="st2" d="M88,242c28.7-20,69.8-31.4,112-31.4s83.3,11.4,112,31.4"/>
+	<text x="200" y="112" text-anchor="middle" class="st1 st3" font-size="28" letter-spacing="5">LOS ANGELES</text>
+	<text x="205" y="225" text-anchor="middle" class="st0 st3" font-size="70" letter-spacing="3"
+		transform="rotate(-18 205 225)">LAKERS</text>
+</g>
+</svg>

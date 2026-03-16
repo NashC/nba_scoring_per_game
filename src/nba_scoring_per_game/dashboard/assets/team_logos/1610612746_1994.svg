@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8"?>
+<svg version="1.1" id="LAC_1994" xmlns="http://www.w3.org/2000/svg" x="0px" y="0px"
+	 viewBox="0 0 400 400" style="enable-background:new 0 0 400 400;" xml:space="preserve">
+<style type="text/css">
+	.st0{fill:#1D428A;}
+	.st1{fill:#C8102E;}
+	.st2{fill:#FFFFFF;}
+	.st3{fill:none;stroke:#1D428A;stroke-width:8;stroke-linecap:round;}
+	.st4{font-family:'Trebuchet MS','Arial',sans-serif;font-weight:700;}
+</style>
+<g>
+	<circle class="st0" cx="200" cy="200" r="176"/>
+	<circle class="st2" cx="200" cy="200" r="154"/>
+	<circle class="st1" cx="200" cy="212" r="110"/>
+	<path class="st3" d="M90,212h220"/>
+	<path class="st3" d="M200,102c21.7,25.9,33.6,67.1,33.6,110S221.7,296.1,200,322"/>
+	<path class="st3" d="M200,102c-21.7,25.9-33.6,67.1-33.6,110S178.3,296.1,200,322"/>
+	<text x="200" y="116" text-anchor="middle" class="st0 st4" font-size="26" letter-spacing="5">LOS ANGELES</text>
+	<text x="200" y="222" text-anchor="middle" class="st2 st4" font-size="46" letter-spacing="5">CLIPPERS</text>
+</g>
+</svg>

@@ -272,7 +272,7 @@ LEGACY_GAME_APPROXIMATIONS: tuple[LegacyGameApproximation, ...] = (
         source_note=(
             "ESPN's recap gives a full quarter scoring breakdown of 17, 14, 17, and 20. "
             "Game-level shooting totals and minutes come from the historical scoring-leaders table. "
-            "This row uses a text fallback for the New Orleans Jazz because the app only ships current team-logo assets."
+            "The dashboard uses a historical New Orleans Jazz logo asset for this legacy row."
         ),
         primary_detail_source_url="https://www.espn.com/classic/s/moment010225maravich.html",
         secondary_detail_source_url="https://en.wikipedia.org/wiki/List_of_NBA_single-game_scoring_leaders",

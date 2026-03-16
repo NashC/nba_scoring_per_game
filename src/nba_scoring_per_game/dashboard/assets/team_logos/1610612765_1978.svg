@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8"?>
+<svg version="1.1" id="DET_1978" xmlns="http://www.w3.org/2000/svg" x="0px" y="0px"
+	 viewBox="0 0 400 400" style="enable-background:new 0 0 400 400;" xml:space="preserve">
+<style type="text/css">
+	.st0{fill:#C8102E;}
+	.st1{fill:#1D428A;}
+	.st2{fill:#FFFFFF;}
+	.st3{fill:none;stroke:#1D428A;stroke-width:8;stroke-linecap:round;}
+	.st4{font-family:'Trebuchet MS','Arial',sans-serif;font-weight:700;}
+</style>
+<g>
+	<circle class="st1" cx="200" cy="200" r="176"/>
+	<circle class="st2" cx="200" cy="200" r="154"/>
+	<circle class="st0" cx="200" cy="200" r="116"/>
+	<path class="st3" d="M84,200h232"/>
+	<path class="st3" d="M200,84c23.1,27.5,35.8,71.2,35.8,116S223.1,288.5,200,316"/>
+	<path class="st3" d="M200,84c-23.1,27.5-35.8,71.2-35.8,116S176.9,288.5,200,316"/>
+	<text x="200" y="140" text-anchor="middle" class="st1 st4" font-size="26" letter-spacing="4">DETROIT</text>
+	<text x="200" y="226" text-anchor="middle" class="st1 st4" font-size="48" letter-spacing="5">PISTONS</text>
+</g>
+</svg>

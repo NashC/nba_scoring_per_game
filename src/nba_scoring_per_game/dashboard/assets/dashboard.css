@@ -902,14 +902,16 @@
   display: flex;
   justify-content: center;
   align-items: center;
+  width: 28px;
+  height: 28px;
+  margin: 0 auto;
 }
 
 .table-team-logo {
-  width: 26px;
-  height: 26px;
+  width: 28px;
+  height: 28px;
   object-fit: contain;
   display: block;
-  margin: 0 auto;
 }
 
 .team-logo {
