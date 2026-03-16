@@ -18,6 +18,7 @@ from .layout import (
 from .loader import DashboardDatasets, load_dashboard_datasets, load_selected_timelines
 from .state import (
     DashboardFilters,
+    _prepare_leaderboard_dataframe,
     apply_dashboard_preset,
     build_leaderboard_table,
     decode_dashboard_state,
@@ -58,11 +59,21 @@ def render_dashboard_view(
     out_dir: str | Path,
     filters: DashboardFilters,
     selected_row_ids: list[str] | None,
+    sort_by: list[dict[str, str]] | None = None,
+    page_current: int = 0,
+    page_size: int = 10,
 ) -> dict[str, Any]:
     summary_df = filter_summary_frame(datasets, filters)
-    records, columns, styles = build_leaderboard_table(summary_df, filters)
+    working, _ = _prepare_leaderboard_dataframe(summary_df, filters, sort_by)
+    records, columns, styles = build_leaderboard_table(
+        summary_df,
+        filters,
+        sort_by=sort_by,
+        page_current=page_current,
+        page_size=page_size,
+    )
 
-    if not records:
+    if working.empty:
         empty_message = _empty_filter_message(filters)
         return {
             "records": [],
@@ -84,7 +95,8 @@ def render_dashboard_view(
             "secondary_note": _secondary_note(filters),
         }
 
-    selected_records = select_records(records, selected_row_ids)
+    all_records = working.to_dict(orient="records")
+    selected_records = select_records(all_records, selected_row_ids)
     selected_ids = [record["selection_id"] for record in selected_records]
     if len(selected_row_ids or []) > len(selected_records):
         status = f"Showing the first {len(selected_records)} selected comparisons."
@@ -471,9 +483,12 @@ def _register_callbacks(app: Dash, datasets: DashboardDatasets, out_dir: Path) -
     @app.callback(
         Output("leaderboard-table", "data"),
         Output("leaderboard-table", "columns"),
+        Output("leaderboard-table", "tooltip_header"),
+        Output("leaderboard-table", "tooltip_data"),
         Output("leaderboard-table", "style_header_conditional"),
         Output("leaderboard-table", "style_data_conditional"),
         Output("leaderboard-table", "style_cell_conditional"),
+        Output("leaderboard-table", "page_count"),
         Output("leaderboard-table", "selected_row_ids"),
         Output("comparison-chart", "figure"),
         Output("secondary-analysis-chart", "figure"),
@@ -508,6 +523,9 @@ def _register_callbacks(app: Dash, datasets: DashboardDatasets, out_dir: Path) -
         Input("preset-filter", "value"),
         Input("url-selected-ids", "data"),
         Input("leaderboard-table", "selected_row_ids"),
+        Input("leaderboard-table", "sort_by"),
+        Input("leaderboard-table", "page_current"),
+        State("leaderboard-table", "page_size"),
     )
     def _update_dashboard(
         entity_mode: str,
@@ -534,6 +552,9 @@ def _register_callbacks(app: Dash, datasets: DashboardDatasets, out_dir: Path) -
         preset: str | None,
         url_selected_ids: list[str] | None,
         selected_row_ids: list[str] | None,
+        sort_by: list[dict[str, str]] | None,
+        page_current: int,
+        page_size: int,
     ):
         filters = _build_filters_from_inputs(
             entity_mode=entity_mode,
@@ -564,13 +585,24 @@ def _register_callbacks(app: Dash, datasets: DashboardDatasets, out_dir: Path) -
             if ctx.triggered_id == "url-selected-ids" and url_selected_ids
             else selected_row_ids
         )
-        view = render_dashboard_view(datasets, out_dir, filters, effective_selected_ids)
+        view = render_dashboard_view(
+            datasets,
+            out_dir,
+            filters,
+            effective_selected_ids,
+            sort_by=sort_by,
+            page_current=page_current,
+            page_size=page_size,
+        )
         return (
             view["records"],
             view["columns"],
+            view["leaderboard_styles"]["tooltip_header"],
+            view["leaderboard_styles"]["tooltip_data"],
             view["leaderboard_styles"]["style_header_conditional"],
             view["leaderboard_styles"]["style_data_conditional"],
             view["leaderboard_styles"]["style_cell_conditional"],
+            view["leaderboard_styles"]["page_count"],
             view["selected_ids"],
             view["primary_figure"],
             view["secondary_figure"],

@@ -146,6 +146,14 @@ class DashboardTests(unittest.TestCase):
             self.assertIsNotNone(find_component_by_id(app.layout, "detail-panel-content"))
             table = find_component_by_id(app.layout, "leaderboard-table")
             self.assertEqual(table.markdown_options, {"html": True})
+            self.assertEqual(table.page_action, "custom")
+            self.assertEqual(table.fixed_columns, {"headers": True, "data": 3})
+            self.assertEqual(table.sort_action, "custom")
+            self.assertEqual(table.sort_mode, "single")
+            self.assertEqual(table.page_size, 10)
+            self.assertIsNotNone(table.tooltip_header)
+            self.assertIsNotNone(table.tooltip_data)
+            self.assertIn("game_date_display", table.tooltip_header)
 
     def test_create_dashboard_app_empty_state_without_outputs(self) -> None:
         with TemporaryDirectory() as tmpdir:
@@ -280,6 +288,34 @@ class DashboardTests(unittest.TestCase):
             self.assertEqual(styles["highlight_column_id"], "offensive_share_display")
             self.assertTrue(any(rule["if"]["column_id"] == "offensive_share_display" for rule in styles["style_header_conditional"]))
             self.assertIn("/assets/team_logos/", records[0]["team_logo_display"])
+            self.assertEqual(records[0]["game_date_display"], "2024")
+            self.assertEqual(styles["tooltip_data"][0]["game_date_display"]["value"], "Exact date: 2024-01-01")
+            self.assertEqual(styles["tooltip_header"]["ts_pct_display"]["type"], "markdown")
+            self.assertIn("True Shooting Percentage", styles["tooltip_header"]["ts_pct_display"]["value"])
+            self.assertIn("PTS / (2 × (FGA + 0.44 × FTA))", styles["tooltip_header"]["ts_pct_display"]["value"])
+            self.assertIn("current filters and ranking metric", styles["tooltip_header"]["rank"]["value"])
+            self.assertIn("hover the year cell", styles["tooltip_header"]["game_date_display"]["value"].lower())
+
+    def test_build_leaderboard_table_sorts_by_clicked_column_using_raw_values(self) -> None:
+        with TemporaryDirectory() as tmpdir:
+            build_test_outputs(tmpdir)
+            datasets = load_dashboard_datasets(tmpdir)
+            filters = DashboardFilters(entity_mode="game", ranking_metric="total_points")
+            frame = filter_summary_frame(datasets, filters)
+            records, _, _ = build_leaderboard_table(
+                frame,
+                filters,
+                sort_by=[{"column_id": "player_name", "direction": "asc"}],
+            )
+            self.assertGreaterEqual(len(records), 2)
+            self.assertLessEqual(records[0]["player_name"], records[1]["player_name"])
+            numeric_records, _, _ = build_leaderboard_table(
+                frame,
+                filters,
+                sort_by=[{"column_id": "final_points_display", "direction": "desc"}],
+            )
+            self.assertGreaterEqual(len(numeric_records), 2)
+            self.assertGreaterEqual(int(numeric_records[0]["final_points_display"]), int(numeric_records[1]["final_points_display"]))
 
     def test_build_leaderboard_table_uses_mode_specific_columns(self) -> None:
         with TemporaryDirectory() as tmpdir:
@@ -292,6 +328,7 @@ class DashboardTests(unittest.TestCase):
             self.assertIn("window_points_per_minute_display", column_ids)
             self.assertIn("avg_abs_score_diff_in_window_display", column_ids)
             self.assertEqual(styles["highlight_column_id"], "points_in_window_display")
+            self.assertIn("burst window", styles["tooltip_header"]["points_in_window_display"]["value"])
 
     def test_render_dashboard_view_empty_state_includes_active_filter_guidance(self) -> None:
         with TemporaryDirectory() as tmpdir:

@@ -189,9 +189,15 @@
 
 .content-grid {
   display: grid;
-  grid-template-columns: minmax(320px, 0.95fr) minmax(520px, 1.6fr) minmax(280px, 0.9fr);
+  grid-template-columns: minmax(380px, 1fr) minmax(560px, 1fr);
   gap: 16px;
   align-items: start;
+}
+
+.content-side-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
 }
 
 .leaderboard-panel,

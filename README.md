@@ -188,6 +188,16 @@ Threshold note:
 - if dashboard summary loading exceeds `2.5s` on at least `100k` summary rows, add a summary index next phase
 - if median summary filtering exceeds `250ms` over `20` runs, add `.dashboard_cache/summary_index.parquet` next phase
 
+## Legacy pre-1996 games
+
+The official event-level pipeline is still anchored to the post-1996 play-by-play era, but the repo now also tracks a seed catalog of important pre-1996 scoring games for manual reconstruction work:
+
+- [Legacy games catalog guide](/Users/nash/Documents/coding_projects/nba_scoring_per_game/docs/LEGACY_GAMES.md)
+- [Legacy game catalog CSV](/Users/nash/Documents/coding_projects/nba_scoring_per_game/docs/legacy_game_catalog.csv)
+- [Legacy split evidence CSV](/Users/nash/Documents/coding_projects/nba_scoring_per_game/docs/legacy_split_catalog.csv)
+
+Wilt Chamberlain's 100-point game is already included locally as an explicitly labeled manual approximation built from published quarter splits.
+
 ## Phase 2 analytics
 
 The timeline dataset now includes:

@@ -154,11 +154,12 @@ QUERY_PARAM_KEYS = {
 LEADERBOARD_BASE_SPECS = {
     "game": [
         ("rank", "#", "text"),
-        ("final_points", "Points", "int"),
+        ("final_points", "Pts", "int"),
         ("player_name", "Player", "text"),
         ("team_logo", "Team", "markdown"),
         ("opponent_team_logo", "Opp", "markdown"),
-        ("game_date", "Date", "text"),
+        ("game_date", "Year", "text"),
+        ("minutes_played", "Mins", "decimal"),
         ("points_per_minute", "Pts / Min", "decimal"),
         ("ts_pct", "TS%", "pct1"),
         ("efg_pct", "eFG%", "pct1"),
@@ -168,12 +169,13 @@ LEADERBOARD_BASE_SPECS = {
     ],
     "quarter": [
         ("rank", "#", "text"),
-        ("quarter_points", "Points", "int"),
+        ("quarter_points", "Pts", "int"),
         ("player_name", "Player", "text"),
         ("team_logo", "Team", "markdown"),
         ("opponent_team_logo", "Opp", "markdown"),
-        ("game_date", "Date", "text"),
+        ("game_date", "Year", "text"),
         ("entity_label", "Segment", "text"),
+        ("quarter_duration_minutes", "Mins", "decimal"),
         ("points_per_minute", "Pts / Min", "decimal"),
         ("competitive_scoring_share", "Comp Share", "pct1"),
         ("avg_abs_margin_during_scoring_events", "Avg Abs Margin", "decimal"),
@@ -182,12 +184,13 @@ LEADERBOARD_BASE_SPECS = {
     ],
     "half": [
         ("rank", "#", "text"),
-        ("half_points", "Points", "int"),
+        ("half_points", "Pts", "int"),
         ("player_name", "Player", "text"),
         ("team_logo", "Team", "markdown"),
         ("opponent_team_logo", "Opp", "markdown"),
-        ("game_date", "Date", "text"),
+        ("game_date", "Year", "text"),
         ("entity_label", "Segment", "text"),
+        ("half_duration_minutes", "Mins", "decimal"),
         ("points_per_minute", "Pts / Min", "decimal"),
         ("competitive_scoring_share", "Comp Share", "pct1"),
         ("avg_abs_margin_during_scoring_events", "Avg Abs Margin", "decimal"),
@@ -196,12 +199,13 @@ LEADERBOARD_BASE_SPECS = {
     ],
     "burst": [
         ("rank", "#", "text"),
-        ("points_in_window", "Points", "int"),
+        ("points_in_window", "Pts", "int"),
         ("player_name", "Player", "text"),
         ("team_logo", "Team", "markdown"),
         ("opponent_team_logo", "Opp", "markdown"),
-        ("game_date", "Date", "text"),
+        ("game_date", "Year", "text"),
         ("entity_label", "Burst", "text"),
+        ("burst_window_seconds", "Mins", "minutes_from_seconds"),
         ("window_points_per_minute", "Pts / Min", "decimal"),
         ("competitive_scoring_share", "Comp Share", "pct1"),
         ("avg_abs_score_diff_in_window", "Avg Abs Margin", "decimal"),
@@ -422,25 +426,37 @@ def filter_summary_frame(datasets: DashboardDatasets, filters: DashboardFilters)
 def build_leaderboard_table(
     summary_df: pd.DataFrame,
     filters: DashboardFilters,
-    limit: int = 50,
+    limit: int | None = None,
+    sort_by: list[dict[str, str]] | None = None,
+    page_current: int = 0,
+    page_size: int | None = None,
 ) -> tuple[list[dict[str, Any]], list[dict[str, str]], dict[str, Any]]:
-    column_specs = _leaderboard_column_specs(filters.entity_mode, filters.ranking_metric)
-    if summary_df.empty:
-        return [], _leaderboard_columns(column_specs), _leaderboard_style_metadata(column_specs, None)
+    working, column_specs = _prepare_leaderboard_dataframe(summary_df, filters, sort_by)
+    if working.empty:
+        return [], _leaderboard_columns(column_specs), _leaderboard_style_metadata(
+            column_specs,
+            None,
+            filters.entity_mode,
+            tooltip_data=[],
+            page_count=0,
+            total_rows=0,
+        )
 
-    working = summary_df.head(limit).copy()
-    working["rank"] = range(1, len(working) + 1)
-    working["entity_label"] = working.apply(lambda row: entity_label_from_row(row, filters.entity_mode), axis=1)
-    working["selection_id"] = working.apply(lambda row: selection_id_from_row(row, filters.entity_mode), axis=1)
-    working["id"] = working["selection_id"]
+    if limit is not None:
+        working = working.head(limit).copy()
+    total_rows = len(working)
+    paged = _slice_leaderboard_page(working, page_current=page_current, page_size=page_size)
 
-    for column_id, _, column_type in column_specs:
-        display_id = _display_id(column_id)
-        working[display_id] = _format_display_series(working, column_id, column_type)
-
-    records = working.to_dict(orient="records")
+    records = paged.to_dict(orient="records")
     highlight_column = _highlight_display_id(filters.entity_mode, filters.ranking_metric)
-    style_meta = _leaderboard_style_metadata(column_specs, highlight_column)
+    style_meta = _leaderboard_style_metadata(
+        column_specs,
+        highlight_column,
+        filters.entity_mode,
+        tooltip_data=_leaderboard_tooltip_data(paged, column_specs),
+        page_count=_page_count(total_rows, page_size),
+        total_rows=total_rows,
+    )
     return records, _leaderboard_columns(column_specs), style_meta
 
 
@@ -633,6 +649,11 @@ def _leaderboard_column_specs(entity_mode: str, ranking_metric: str) -> list[tup
 def _leaderboard_style_metadata(
     column_specs: list[tuple[str, str, str]],
     highlight_display_id: str | None,
+    entity_mode: str,
+    *,
+    tooltip_data: list[dict[str, dict[str, str]]] | None = None,
+    page_count: int | None = None,
+    total_rows: int | None = None,
 ) -> dict[str, Any]:
     numeric_columns = [
         _display_id(column_id)
@@ -675,7 +696,116 @@ def _leaderboard_style_metadata(
         "style_cell_conditional": style_cell_conditional,
         "style_header_conditional": style_header_conditional,
         "style_data_conditional": style_data_conditional,
+        "tooltip_header": _leaderboard_tooltip_header(column_specs, entity_mode),
+        "tooltip_data": tooltip_data or [],
+        "page_count": page_count,
+        "total_rows": total_rows,
     }
+
+
+def _prepare_leaderboard_dataframe(
+    summary_df: pd.DataFrame,
+    filters: DashboardFilters,
+    sort_by: list[dict[str, str]] | None,
+) -> tuple[pd.DataFrame, list[tuple[str, str, str]]]:
+    column_specs = _leaderboard_column_specs(filters.entity_mode, filters.ranking_metric)
+    if summary_df.empty:
+        return pd.DataFrame(), column_specs
+    working = summary_df.copy()
+    working["rank"] = range(1, len(working) + 1)
+    working["entity_label"] = working.apply(lambda row: entity_label_from_row(row, filters.entity_mode), axis=1)
+    working["selection_id"] = working.apply(lambda row: selection_id_from_row(row, filters.entity_mode), axis=1)
+    working["id"] = working["selection_id"]
+    working = _sort_leaderboard_rows(working, column_specs, sort_by)
+    for column_id, _, column_type in column_specs:
+        display_id = _display_id(column_id)
+        working[display_id] = _format_display_series(working, column_id, column_type)
+    return working, column_specs
+
+
+def _sort_leaderboard_rows(
+    df: pd.DataFrame,
+    column_specs: list[tuple[str, str, str]],
+    sort_by: list[dict[str, str]] | None,
+) -> pd.DataFrame:
+    if df.empty or not sort_by:
+        return df
+    active_sort = sort_by[0]
+    display_id = str(active_sort.get("column_id") or "").strip()
+    if not display_id:
+        return df
+    direction = str(active_sort.get("direction") or "asc").strip().lower()
+    ascending = direction != "desc"
+    source_column = _sortable_source_column(display_id, column_specs)
+    if source_column is None or source_column not in df.columns:
+        return df
+    working = df.copy()
+    column_type = _sortable_column_type(display_id, column_specs)
+    if source_column == "rank":
+        sort_series = pd.to_numeric(working[source_column], errors="coerce")
+    elif source_column == "game_date":
+        parsed = pd.to_datetime(working[source_column], errors="coerce")
+        sort_series = parsed.dt.year
+    elif column_type in {"int", "decimal", "minutes_from_seconds", "pct1"}:
+        sort_series = pd.to_numeric(working[source_column], errors="coerce")
+    else:
+        sort_series = working[source_column].fillna("").astype(str)
+    working["_sort_value"] = sort_series
+    working = working.sort_values(
+        by=["_sort_value", "rank"],
+        ascending=[ascending, True],
+        na_position="last",
+        kind="mergesort",
+    )
+    return working.drop(columns="_sort_value")
+
+
+def _slice_leaderboard_page(
+    df: pd.DataFrame,
+    *,
+    page_current: int,
+    page_size: int | None,
+) -> pd.DataFrame:
+    if page_size is None or page_size <= 0:
+        return df
+    current = max(int(page_current), 0)
+    start = current * int(page_size)
+    end = start + int(page_size)
+    if start >= len(df):
+        start = max(((len(df) - 1) // int(page_size)) * int(page_size), 0)
+        end = start + int(page_size)
+    return df.iloc[start:end].copy()
+
+
+def _page_count(total_rows: int, page_size: int | None) -> int:
+    if page_size is None or page_size <= 0 or total_rows <= 0:
+        return 1 if total_rows else 0
+    return ((int(total_rows) - 1) // int(page_size)) + 1
+
+
+def _sortable_source_column(
+    display_id: str,
+    column_specs: list[tuple[str, str, str]],
+) -> str | None:
+    reverse_map = {_display_id(column_id): column_id for column_id, _, _ in column_specs}
+    column_id = reverse_map.get(display_id)
+    if column_id is None:
+        return None
+    if column_id == "team_logo":
+        return "team_tricode"
+    if column_id == "opponent_team_logo":
+        return "opponent_team_tricode"
+    return column_id
+
+
+def _sortable_column_type(
+    display_id: str,
+    column_specs: list[tuple[str, str, str]],
+) -> str:
+    for column_id, _, column_type in column_specs:
+        if _display_id(column_id) == display_id:
+            return column_type
+    return "text"
 
 
 def _format_display_series(df: pd.DataFrame, column_id: str, column_type: str) -> pd.Series:
@@ -685,6 +815,8 @@ def _format_display_series(df: pd.DataFrame, column_id: str, column_type: str) -
         return _team_logo_markdown_series(df, "team_id", "team_tricode")
     if column_id == "opponent_team_logo":
         return _team_logo_markdown_series(df, "opponent_team_id", "opponent_team_tricode")
+    if column_id == "game_date":
+        return _format_game_year_series(df.get(column_id, pd.Series(index=df.index, dtype="object")))
     series = df.get(column_id, pd.Series(index=df.index, dtype="object"))
     if column_type == "text":
         return series.fillna("").astype(str)
@@ -695,6 +827,8 @@ def _format_display_series(df: pd.DataFrame, column_id: str, column_type: str) -
         return numeric.map(lambda value: "NA" if pd.isna(value) else f"{int(round(float(value)))}")
     if column_type == "decimal":
         return numeric.map(lambda value: "NA" if pd.isna(value) else f"{float(value):.1f}")
+    if column_type == "minutes_from_seconds":
+        return numeric.map(lambda value: "NA" if pd.isna(value) else f"{float(value) / 60.0:.1f}")
     if column_type == "pct1":
         return numeric.map(lambda value: "NA" if pd.isna(value) else f"{float(value):.1%}")
     return series.fillna("").astype(str)
@@ -791,6 +925,107 @@ def _team_logo_markdown(team_id: Any, tricode: Any) -> str:
 
 def _highlight_display_id(entity_mode: str, ranking_metric: str) -> str:
     return _display_id(_ranking_source_column(entity_mode, ranking_metric))
+
+
+def _leaderboard_tooltip_header(
+    column_specs: list[tuple[str, str, str]],
+    entity_mode: str,
+) -> dict[str, dict[str, str]]:
+    return {
+        _display_id(column_id): {
+            "type": "markdown",
+            "value": _column_tooltip(column_id, entity_mode),
+        }
+        for column_id, _, _ in column_specs
+    }
+
+
+def _leaderboard_tooltip_data(
+    df: pd.DataFrame,
+    column_specs: list[tuple[str, str, str]],
+) -> list[dict[str, dict[str, str]]]:
+    if df.empty:
+        return []
+    supported_display_ids = {_display_id(column_id) for column_id, _, _ in column_specs}
+    exact_dates = _exact_game_date_series(df.get("game_date", pd.Series(index=df.index, dtype="object")))
+    tooltips: list[dict[str, dict[str, str]]] = []
+    for index in df.index:
+        row_tooltips: dict[str, dict[str, str]] = {}
+        if "game_date_display" in supported_display_ids:
+            exact_date = exact_dates.loc[index]
+            if exact_date:
+                row_tooltips["game_date_display"] = {
+                    "value": f"Exact date: {exact_date}",
+                    "type": "text",
+                }
+        tooltips.append(row_tooltips)
+    return tooltips
+
+
+def _column_tooltip(column_id: str, entity_mode: str) -> str:
+    entity_label = {
+        "game": "full game",
+        "quarter": "quarter",
+        "half": "half",
+        "burst": "burst window",
+    }.get(entity_mode, "performance")
+    definitions = {
+        "rank": "**Rank**\n\nCurrent leaderboard position after the active filters and ranking metric are applied.\n\n**Why it matters:** If you temporarily sort another column, rank still preserves the original context from the current filters and ranking metric.",
+        "final_points": "**Total Points**\n\n**Formula:** `Σ point_value`\n\n**Why it matters:** Raw scoring volume is still the baseline comparison for full games.",
+        "quarter_points": "**Quarter Points**\n\n**Formula:** `Σ point_value` within the quarter\n\n**Why it matters:** This is the core stat for best-quarter comparisons.",
+        "half_points": "**Half Points**\n\n**Formula:** `Σ point_value` within the half\n\n**Why it matters:** This identifies dominant first halves and second halves.",
+        "points_in_window": "**Burst Points**\n\n**Formula:** `Σ point_value` inside the selected fixed-length burst window\n\n**Why it matters:** This is the core short-heater measure for burst mode.",
+        "player_name": "**Player**\n\nThe scorer tied to this row.\n\n**Why it matters:** The same game can contribute multiple player or segment rows.",
+        "team_logo": "**Team**\n\nPlayer's team logo.\n\n**Why it matters:** It keeps matchup context visible without spending width on text abbreviations.",
+        "opponent_team_logo": "**Opponent**\n\nOpponent team logo.\n\n**Why it matters:** It keeps matchup context visible without spending width on text abbreviations.",
+        "game_date": "**Year**\n\nLeaderboard display uses the game year for faster era scanning.\n\n**Exact date:** hover the year cell.\n\n**Why it matters:** It keeps the table compact while preserving exact identification on hover.",
+        "minutes_played": "**Minutes**\n\nOfficial minutes played from the box score.\n\n**Why it matters:** Rate stats depend on opportunity, not just raw total points.",
+        "quarter_duration_minutes": "**Quarter Minutes**\n\n**Formula:** `quarter_duration_seconds / 60`\n\n**Why it matters:** It anchors pace comparisons inside a quarter.",
+        "half_duration_minutes": "**Half Minutes**\n\n**Formula:** `half_duration_seconds / 60`\n\n**Why it matters:** It anchors pace comparisons across halves.",
+        "burst_window_seconds": "**Burst Minutes**\n\n**Formula:** `burst_window_seconds / 60`\n\n**Why it matters:** Burst intensity depends on the chosen window length.",
+        "entity_label": "**Segment**\n\nLabel for the selected quarter, half, or burst interval.\n\n**Why it matters:** The same player-game can produce multiple ranked segments.",
+        "points_per_minute": f"**Points / Minute**\n\n**Formula:** `points / minutes`\n\n**Why it matters:** It pace-adjusts the selected {entity_label} so unequal-length performances can be compared fairly.",
+        "window_points_per_minute": "**Window Points / Minute**\n\n**Formula:** `points_in_window / (burst_window_seconds / 60)`\n\n**Why it matters:** It compares burst explosiveness independent of raw window total.",
+        "ts_pct": "**True Shooting Percentage**\n\n**Formula:** `PTS / (2 × (FGA + 0.44 × FTA))`\n\n**Why it matters:** This is the strongest all-in scoring-efficiency metric in the table.",
+        "efg_pct": "**Effective Field Goal Percentage**\n\n**Formula:** `(FGM + 0.5 × 3PM) / FGA`\n\n**Why it matters:** It isolates shot-making efficiency while giving extra weight to 3s.",
+        "offensive_share": "**Offensive Share**\n\n**Formula:** `player_points / team_points`\n\n**Why it matters:** It measures how much of the team offense came from this scorer.",
+        "peak_projected_48": "**Peak Projected 48**\n\n**Formula:** `cumulative_points / minutes_elapsed × 48`\n\nComputed after the first minute.\n\n**Why it matters:** It tracks when a game was on record-level pace.",
+        "competitive_scoring_share": "**Competitive Share**\n\n**Formula:** `competitive_points / total_points`\n\nCompetitive means the score margin was within 10 points.\n\n**Why it matters:** It separates close-game production from blowout accumulation.",
+        "avg_abs_margin_during_scoring_events": "**Average Absolute Margin**\n\n**Formula:** `mean(|score_diff|)` at the player's scoring events\n\n**Why it matters:** Lower values mean the scoring happened in a tighter game.",
+        "avg_abs_score_diff_in_window": "**Average Absolute Margin**\n\n**Formula:** `mean(|score_diff|)` inside the burst window\n\n**Why it matters:** Lower values mean the burst happened in a tighter game.",
+        "share_points_from_2s": "**2PT Share**\n\n**Formula:** `points_from_2s / total_points`\n\n**Why it matters:** It reveals how much of the scoring came from 2-point makes.",
+        "share_points_from_3s": "**3PT Share**\n\n**Formula:** `points_from_3s / total_points`\n\n**Why it matters:** It reveals how much of the scoring came from 3-pointers.",
+        "share_points_from_fts": "**FT Share**\n\n**Formula:** `points_from_fts / total_points`\n\n**Why it matters:** It reveals how much of the scoring came from free throws.",
+        "best_60_sec_points": "**Best 60 Seconds**\n\nMaximum points in any 60-second stretch.\n\n**Why it matters:** It highlights ultra-short heaters.",
+        "best_2_min_points": "**Best 2 Minutes**\n\nMaximum points in any 2-minute stretch.\n\n**Why it matters:** It captures short-burst dominance.",
+        "best_3_min_points": "**Best 3 Minutes**\n\nMaximum points in any 3-minute stretch.\n\n**Why it matters:** It is the most useful default burst comparison in the app.",
+        "best_5_min_points": "**Best 5 Minutes**\n\nMaximum points in any 5-minute stretch.\n\n**Why it matters:** It measures sustained heaters beyond a quick flurry.",
+        "best_10_min_points": "**Best 10 Minutes**\n\nMaximum points in any 10-minute stretch.\n\n**Why it matters:** It captures extended scoring domination.",
+        "best_quarter_points": "**Best Quarter**\n\nHighest-scoring quarter in the game.\n\n**Why it matters:** Many historic games are remembered for one overwhelming quarter.",
+        "best_half_points": "**Best Half**\n\nHighest-scoring half in the game.\n\n**Why it matters:** It surfaces games built on half-to-half dominance.",
+        "competitive_points": "**Competitive Points**\n\nPoints scored while the game was within 10 points.\n\n**Why it matters:** Raw points alone can hide whether the scoring happened in a live game.",
+        "trailing_points": "**Trailing Points**\n\nPoints scored while the player's team was behind.\n\n**Why it matters:** Comeback scoring often feels more meaningful than front-running accumulation.",
+        "trailing_scoring_rate": "**Trailing Rate**\n\n**Formula:** `trailing_points / minutes_played`\n\n**Why it matters:** It measures pressure scoring rather than overall volume.",
+    }
+    return definitions.get(column_id, f"{column_id.replace('_', ' ').title()} for the selected performance.")
+
+
+def _format_game_year_series(series: pd.Series) -> pd.Series:
+    formatted = series.fillna("").astype(str)
+    parsed = pd.to_datetime(series, errors="coerce")
+    valid = parsed.notna()
+    if valid.any():
+        formatted.loc[valid] = parsed.loc[valid].dt.year.astype(str)
+    return formatted
+
+
+def _exact_game_date_series(series: pd.Series) -> pd.Series:
+    formatted = series.fillna("").astype(str)
+    parsed = pd.to_datetime(series, errors="coerce")
+    valid = parsed.notna()
+    if valid.any():
+        formatted.loc[valid] = parsed.loc[valid].dt.strftime("%Y-%m-%d")
+    return formatted
 
 
 def _options_from_series(series: pd.Series) -> list[dict[str, str]]:

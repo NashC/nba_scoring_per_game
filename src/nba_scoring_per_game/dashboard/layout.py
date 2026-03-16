@@ -66,7 +66,12 @@ def build_dashboard_layout(datasets: DashboardDatasets) -> html.Div:
 
     default_filters = DashboardFilters()
     initial_frame = filter_summary_frame(datasets, default_filters)
-    initial_records, initial_columns, initial_styles = build_leaderboard_table(initial_frame, default_filters)
+    initial_records, initial_columns, initial_styles = build_leaderboard_table(
+        initial_frame,
+        default_filters,
+        page_current=0,
+        page_size=10,
+    )
     initial_selected_ids = [initial_records[0]["id"]] if initial_records else []
     initial_selected_records = select_records(initial_records, initial_selected_ids)
     initial_timelines = load_selected_timelines(datasets.out_dir, initial_selected_records)
@@ -289,53 +294,81 @@ def build_dashboard_layout(datasets: DashboardDatasets) -> html.Div:
                 className="content-grid",
                 children=[
                     html.Div(
-                        className="leaderboard-panel",
+                        className="content-side-stack",
                         children=[
                             html.Div(
-                                className="panel-header panel-header-row",
+                                className="leaderboard-panel",
                                 children=[
                                     html.Div(
+                                        className="panel-header panel-header-row",
                                         children=[
-                                            html.H2("Leaderboard", className="panel-title"),
-                                            html.P(
-                                                "Use quick views for preset workflows, then select up to 4 rows to compare. "
-                                                "The active ranking metric is highlighted in the table.",
-                                                className="panel-caption",
+                                            html.Div(
+                                                children=[
+                                                    html.H2("Leaderboard", className="panel-title"),
+                                                    html.P(
+                                                        "Use quick views for preset workflows, then select up to 4 rows to compare. "
+                                                        "The active ranking metric is highlighted in the table.",
+                                                        className="panel-caption",
+                                                    ),
+                                                ]
                                             ),
-                                        ]
+                                            html.Button("Export CSV", id="export-leaderboard", className="panel-button", n_clicks=0),
+                                        ],
                                     ),
-                                    html.Button("Export CSV", id="export-leaderboard", className="panel-button", n_clicks=0),
+                                    html.Div(id="quick-view-bar", className="quick-view-bar", children=build_quick_view_bar(default_filters.preset)),
+                                    dash_table.DataTable(
+                                        id="leaderboard-table",
+                                        data=initial_records,
+                                        columns=initial_columns,
+                                        tooltip_header=initial_styles["tooltip_header"],
+                                        tooltip_data=initial_styles["tooltip_data"],
+                                        tooltip_delay=0,
+                                        tooltip_duration=None,
+                                        selected_row_ids=initial_selected_ids,
+                                        row_selectable="multi",
+                                        page_action="custom",
+                                        page_current=0,
+                                        sort_action="custom",
+                                        sort_mode="single",
+                                        sort_by=[],
+                                        style_as_list_view=True,
+                                        page_size=10,
+                                        page_count=initial_styles["page_count"],
+                                        fixed_columns={"headers": True, "data": 3},
+                                        markdown_options={"html": True},
+                                        style_table={"overflowX": "auto", "minWidth": "100%"},
+                                        style_header={
+                                            "backgroundColor": "#efe5d7",
+                                            "fontWeight": 700,
+                                            "border": "none",
+                                            "color": "#1f1b18",
+                                        },
+                                        style_header_conditional=initial_styles["style_header_conditional"],
+                                        style_cell={
+                                            "backgroundColor": "#fffaf2",
+                                            "border": "none",
+                                            "color": "#1f1b18",
+                                            "fontFamily": "Avenir Next, Trebuchet MS, Helvetica Neue, sans-serif",
+                                            "padding": "10px 12px",
+                                            "textAlign": "left",
+                                        },
+                                        style_cell_conditional=initial_styles["style_cell_conditional"],
+                                        style_data_conditional=initial_styles["style_data_conditional"],
+                                    ),
                                 ],
                             ),
-                            html.Div(id="quick-view-bar", className="quick-view-bar", children=build_quick_view_bar(default_filters.preset)),
-                            dash_table.DataTable(
-                                id="leaderboard-table",
-                                data=initial_records,
-                                columns=initial_columns,
-                                selected_row_ids=initial_selected_ids,
-                                row_selectable="multi",
-                                sort_action="none",
-                                style_as_list_view=True,
-                                page_size=14,
-                                markdown_options={"html": True},
-                                style_table={"overflowX": "auto"},
-                                style_header={
-                                    "backgroundColor": "#efe5d7",
-                                    "fontWeight": 700,
-                                    "border": "none",
-                                    "color": "#1f1b18",
-                                },
-                                style_header_conditional=initial_styles["style_header_conditional"],
-                                style_cell={
-                                    "backgroundColor": "#fffaf2",
-                                    "border": "none",
-                                    "color": "#1f1b18",
-                                    "fontFamily": "Avenir Next, Trebuchet MS, Helvetica Neue, sans-serif",
-                                    "padding": "10px 12px",
-                                    "textAlign": "left",
-                                },
-                                style_cell_conditional=initial_styles["style_cell_conditional"],
-                                style_data_conditional=initial_styles["style_data_conditional"],
+                            html.Div(
+                                className="detail-panel",
+                                children=[
+                                    html.Div(
+                                        className="panel-header",
+                                        children=[
+                                            html.H2("Selection Details", className="panel-title"),
+                                            html.P("Summary metrics update with the active comparison set.", className="panel-caption"),
+                                        ],
+                                    ),
+                                    html.Div(initial_details, id="detail-panel-content", className="detail-panel-content"),
+                                ],
                             ),
                         ],
                     ),
@@ -422,19 +455,6 @@ def build_dashboard_layout(datasets: DashboardDatasets) -> html.Div:
                                     ),
                                 ],
                             ),
-                        ],
-                    ),
-                    html.Div(
-                        className="detail-panel",
-                        children=[
-                            html.Div(
-                                className="panel-header",
-                                children=[
-                                    html.H2("Selection Details", className="panel-title"),
-                                    html.P("Summary metrics update with the active comparison set.", className="panel-caption"),
-                                ],
-                            ),
-                            html.Div(initial_details, id="detail-panel-content", className="detail-panel-content"),
                         ],
                     ),
                 ],
