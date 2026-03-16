@@ -7,6 +7,7 @@ from dash import dash_table
 import pandas as pd
 
 from ..transforms import build_burst_timeline, build_half_timeline, build_quarter_timeline
+from .branding import LiveLogo3D, build_brand_lockup
 from .charts import (
     COMPARISON_COLORS,
     SHOT_COLORS,
@@ -40,7 +41,8 @@ def build_dashboard_layout(datasets: DashboardDatasets) -> html.Div:
                 html.Div(
                     className="empty-state-card",
                     children=[
-                        html.H1("NBA Scoring Explorer", className="app-title"),
+                        build_brand_lockup(id="empty-brand-lockup", logo_id="empty-brand-logo"),
+                        html.H1("Backfill curated outputs to unlock the explorer.", className="app-title"),
                         html.P(
                             datasets.message or "No local parquet data is available yet.",
                             className="empty-state-text",
@@ -107,22 +109,45 @@ def build_dashboard_layout(datasets: DashboardDatasets) -> html.Div:
                 className="hero-panel",
                 children=[
                     html.Div(
+                        className="hero-copy",
                         children=[
-                            html.Div("NBA Scoring Explorer", className="eyebrow"),
+                            build_brand_lockup(id="hero-brand-lockup", logo_id="hero-nav-logo"),
                             html.H1("Historic scoring trajectories, bursts, quarters, and context.", className="app-title"),
                             html.P(
                                 "Compare volume, pace, burst intensity, shot mix, and competitiveness across the best scoring performances ever.",
                                 className="app-subtitle",
                             ),
+                            html.Div(
+                                className="hero-metrics",
+                                children=[
+                                    _metric_chip("Games", len(datasets.game_summaries)),
+                                    _metric_chip("Quarters", len(datasets.quarter_summaries)),
+                                    _metric_chip("Halves", len(datasets.half_summaries)),
+                                    _metric_chip("Bursts", len(datasets.burst_summaries)),
+                                ],
+                            ),
                         ]
                     ),
                     html.Div(
-                        className="hero-metrics",
+                        id="hero-brand-stage",
+                        className="hero-brand-stage",
                         children=[
-                            _metric_chip("Games", len(datasets.game_summaries)),
-                            _metric_chip("Quarters", len(datasets.quarter_summaries)),
-                            _metric_chip("Halves", len(datasets.half_summaries)),
-                            _metric_chip("Bursts", len(datasets.burst_summaries)),
+                            html.Div(
+                                className="hero-brand-stage-inner",
+                                children=[
+                                    html.Div("Premium brand mark", className="hero-brand-stage-eyebrow"),
+                                    LiveLogo3D(
+                                        id="hero-live-logo",
+                                        variant="hero",
+                                        decorative=True,
+                                        class_name="hero-live-logo",
+                                    ),
+                                    html.P(
+                                        "A live basketball mark with controlled fire, tuned for a dark shell and small-size clarity.",
+                                        className="hero-brand-stage-note",
+                                    ),
+                                ],
+                            )
                         ],
                     ),
                 ],

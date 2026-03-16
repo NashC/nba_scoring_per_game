@@ -3,6 +3,7 @@ from __future__ import annotations
 from collections import OrderedDict
 from dataclasses import asdict, dataclass
 from datetime import datetime, UTC
+import math
 from typing import Any
 from urllib.parse import parse_qs, urlencode
 from uuid import uuid4
@@ -546,7 +547,7 @@ def encode_dashboard_state(filters: DashboardFilters, selected_ids: list[str] | 
     for field_name, query_key in QUERY_PARAM_KEYS.items():
         if field_name == "selected_ids":
             continue
-        value = getattr(filters, field_name)
+        value = _finite_or_none(getattr(filters, field_name))
         default_value = getattr(defaults, field_name)
         if value is None or value == default_value:
             continue
@@ -607,11 +608,11 @@ def filter_values_from_filters(filters: DashboardFilters) -> dict[str, Any]:
         "shot_markers": ["markers"] if filters.show_shot_markers else [],
         "include_ot": ["include"] if filters.include_ot else [],
         "competitive_only": ["competitive"] if filters.competitive_only else [],
-        "min_points": filters.min_points,
-        "min_competitive_share": filters.min_competitive_share,
-        "min_ts_pct": filters.min_ts_pct,
-        "min_efg_pct": filters.min_efg_pct,
-        "min_offensive_share": filters.min_offensive_share,
+        "min_points": _finite_or_none(filters.min_points),
+        "min_competitive_share": _finite_or_none(filters.min_competitive_share),
+        "min_ts_pct": _finite_or_none(filters.min_ts_pct),
+        "min_efg_pct": _finite_or_none(filters.min_efg_pct),
+        "min_offensive_share": _finite_or_none(filters.min_offensive_share),
         "player": filters.player,
         "team": filters.team,
         "opponent": filters.opponent,
@@ -1076,13 +1077,25 @@ def _first_param(params: dict[str, list[str]], field_name: str) -> str | None:
 def _coerce_int(value: Any) -> int | None:
     if value in {None, "", "None"}:
         return None
-    return int(float(value))
+    try:
+        numeric = float(value)
+    except (TypeError, ValueError):
+        return None
+    if not math.isfinite(numeric):
+        return None
+    return int(numeric)
 
 
 def _coerce_float(value: Any) -> float | None:
     if value in {None, "", "None"}:
         return None
-    return float(value)
+    try:
+        numeric = float(value)
+    except (TypeError, ValueError):
+        return None
+    if not math.isfinite(numeric):
+        return None
+    return numeric
 
 
 def _coerce_bool(value: Any, *, default: bool) -> bool:
@@ -1108,6 +1121,12 @@ def _clean_text(value: Any) -> str | None:
         return None
     text = str(value).strip()
     return text or None
+
+
+def _finite_or_none(value: Any) -> Any:
+    if isinstance(value, float) and not math.isfinite(value):
+        return None
+    return value
 
 
 def saved_bundles_payload(bundles: list[SavedBundle]) -> list[dict[str, str]]:
