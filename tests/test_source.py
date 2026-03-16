@@ -163,6 +163,70 @@ class SourceTests(unittest.TestCase):
         self.assertEqual(int(april_game["away_team_context_losses"]), 0)
         self.assertAlmostEqual(float(april_game["away_team_context_win_pct"]), 1.0, places=6)
 
+    def test_fetch_game_manifest_ignores_blank_wl_team_log_rows(self) -> None:
+        team_logs = pd.DataFrame(
+            [
+                {
+                    "GAME_ID": "game-1",
+                    "GAME_DATE": "2024-01-01",
+                    "TEAM_ID": 1,
+                    "TEAM_ABBREVIATION": "HOM",
+                    "MATCHUP": "HOM vs. AWY",
+                    "WL": "W",
+                },
+                {
+                    "GAME_ID": "game-1",
+                    "GAME_DATE": "2024-01-01",
+                    "TEAM_ID": 2,
+                    "TEAM_ABBREVIATION": "AWY",
+                    "MATCHUP": "AWY @ HOM",
+                    "WL": "L",
+                },
+                {
+                    "GAME_ID": "game-cancelled",
+                    "GAME_DATE": "2024-01-02",
+                    "TEAM_ID": 1,
+                    "TEAM_ABBREVIATION": "HOM",
+                    "MATCHUP": "HOM vs. AWY",
+                    "WL": "",
+                },
+                {
+                    "GAME_ID": "game-cancelled",
+                    "GAME_DATE": "2024-01-02",
+                    "TEAM_ID": 2,
+                    "TEAM_ABBREVIATION": "AWY",
+                    "MATCHUP": "AWY @ HOM",
+                    "WL": pd.NA,
+                },
+                {
+                    "GAME_ID": "game-2",
+                    "GAME_DATE": "2024-01-03",
+                    "TEAM_ID": 1,
+                    "TEAM_ABBREVIATION": "HOM",
+                    "MATCHUP": "HOM vs. AWY",
+                    "WL": "L",
+                },
+                {
+                    "GAME_ID": "game-2",
+                    "GAME_DATE": "2024-01-03",
+                    "TEAM_ID": 2,
+                    "TEAM_ABBREVIATION": "AWY",
+                    "MATCHUP": "AWY @ HOM",
+                    "WL": "W",
+                },
+            ]
+        )
+
+        with patch("nba_scoring_per_game.source._fetch_league_game_log", return_value=team_logs):
+            manifest = fetch_game_manifest("2023-24")
+
+        self.assertEqual(manifest["game_id"].tolist(), ["game-1", "game-2"])
+        second_game = manifest.loc[manifest["game_id"].eq("game-2")].iloc[0]
+        self.assertEqual(int(second_game["home_team_context_wins"]), 1)
+        self.assertEqual(int(second_game["home_team_context_losses"]), 0)
+        self.assertEqual(int(second_game["away_team_context_wins"]), 0)
+        self.assertEqual(int(second_game["away_team_context_losses"]), 1)
+
     def test_parse_minutes_to_float_supports_multiple_input_formats(self) -> None:
         self.assertAlmostEqual(_parse_minutes_to_float("PT05M30.00S") or 0.0, 5.5, places=6)
         self.assertAlmostEqual(_parse_minutes_to_float("12:30") or 0.0, 12.5, places=6)

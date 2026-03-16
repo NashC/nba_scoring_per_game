@@ -89,6 +89,27 @@ class PipelineTests(unittest.TestCase):
             self.assertTrue(bool(second_manifest.iloc[0]["skipped_existing"]))
             self.assertEqual(second_manifest.iloc[0]["status"], "success")
 
+    def test_build_dataset_preserves_supported_legacy_approximations(self) -> None:
+        manifest_df = pd.DataFrame([make_manifest_row()])
+
+        with TemporaryDirectory() as tmpdir:
+            with patch("nba_scoring_per_game.pipeline.fetch_playbyplay", return_value=make_raw_playbyplay()), patch(
+                "nba_scoring_per_game.pipeline.fetch_boxscore_player_totals",
+                return_value=make_boxscore_totals(),
+            ):
+                build_dataset(manifest_df, out_dir=tmpdir, write_mode="overwrite", raw_cache=False)
+
+            wilt_summary_path = (
+                Path(tmpdir)
+                / "player_game_summaries"
+                / "season=1961-62"
+                / "season_type=Regular Season"
+                / "part-LG19620302WILT100.parquet"
+            )
+            wilt_note_path = Path(tmpdir) / "manual_approximations" / "part-LG19620302WILT100.parquet"
+            self.assertTrue(wilt_summary_path.exists())
+            self.assertTrue(wilt_note_path.exists())
+
     def test_build_dataset_records_validation_failure_without_curated_outputs(self) -> None:
         manifest_df = pd.DataFrame([make_manifest_row()])
         bad_boxscore = make_boxscore_totals().copy()
@@ -103,7 +124,14 @@ class PipelineTests(unittest.TestCase):
 
             self.assertEqual(processing_manifest.iloc[0]["status"], "validation_error")
             self.assertFalse(bool(processing_manifest.iloc[0]["validation_passed"]))
-            self.assertTrue(load_dataset(Path(tmpdir) / "raw_scoring_events").empty)
+            official_raw_path = (
+                Path(tmpdir)
+                / "raw_scoring_events"
+                / "season=2023-24"
+                / "season_type=Regular Season"
+                / "part-game-123.parquet"
+            )
+            self.assertFalse(official_raw_path.exists())
 
     def test_query_player_games_filters_and_sorts(self) -> None:
         summary_df = pd.DataFrame(

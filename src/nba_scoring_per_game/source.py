@@ -170,6 +170,9 @@ def _prepare_team_logs(
         if column not in logs.columns:
             logs[column] = pd.NA
     logs = logs[["game_id", "game_date", "team_id", "team_tricode", "matchup", "wl"]].copy()
+    # The NBA API occasionally includes canceled or otherwise incomplete team-log rows
+    # with no result. Exclude them so manifests and record context only reflect played games.
+    logs = logs.loc[~logs["wl"].isna() & logs["wl"].astype(str).str.strip().ne("")].copy()
     logs["season"] = season
     logs["season_type"] = season_type
     return logs.drop_duplicates(subset=["game_id", "team_id"]).reset_index(drop=True)

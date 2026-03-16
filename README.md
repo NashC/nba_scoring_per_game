@@ -110,6 +110,8 @@ Backfill one season:
   --out-dir data
 ```
 
+`backfill-season` also seeds the supported legacy manual approximations into the target out-dir, so manually reconstructed games such as Wilt Chamberlain's 100-point game stay available after fresh rebuilds.
+
 Backfill only games where at least one player reached a point threshold:
 
 ```bash

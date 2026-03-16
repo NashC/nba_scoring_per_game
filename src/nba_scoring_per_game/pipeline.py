@@ -214,6 +214,7 @@ def build_dataset(
     out_path = Path(out_dir)
     current_run_date = datetime.now().date().isoformat()
     results: list[dict[str, Any]] = []
+    _write_supported_legacy_approximations(out_path)
     sorted_manifest = manifest_df.sort_values(["game_date", "game_id"]).reset_index(drop=True)
 
     for _, row in sorted_manifest.iterrows():
@@ -263,6 +264,14 @@ def build_dataset(
     manifest_path = out_path / "processing_manifest" / f"run_date={current_run_date}.parquet"
     _write_parquet(processing_manifest, manifest_path)
     return processing_manifest
+
+
+def _write_supported_legacy_approximations(out_dir: Path) -> None:
+    # Seed supported manual approximations so fresh rebuilds retain legacy games
+    # such as Wilt Chamberlain's 100-point game alongside official data.
+    from .manual_games import write_supported_legacy_approximations
+
+    write_supported_legacy_approximations(out_dir)
 
 
 def query_player_games(
