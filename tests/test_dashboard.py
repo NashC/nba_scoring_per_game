@@ -6,11 +6,16 @@ from tempfile import TemporaryDirectory
 import unittest
 
 import pandas as pd
-from dash import no_update
+from dash import html, no_update
 
 from nba_scoring_per_game.dashboard import LiveLogo3D, create_dashboard_app, load_dashboard_datasets, render_dashboard_view
 from nba_scoring_per_game.dashboard.app import _updated_url_search
-from nba_scoring_per_game.dashboard.layout import build_detail_card
+from nba_scoring_per_game.dashboard.layout import (
+    _player_headshot,
+    build_chart_summary_strip,
+    build_comparison_tray,
+    build_detail_card,
+)
 from nba_scoring_per_game.dashboard.charts import (
     MARGIN_COLORS,
     build_rolling_analysis_series,
@@ -483,6 +488,36 @@ class DashboardTests(unittest.TestCase):
             self.assertIn("Legacy Approx", text)
             self.assertIn("Legacy approximation note", text)
             self.assertIn("Competitive", text)
+
+    def test_card_views_use_full_player_names_and_headshot_urls(self) -> None:
+        record = {
+            "selection_id": "game:0022300001:1628389",
+            "player_id": 1628389,
+            "player_name": "Adebayo",
+            "entity_label": "Full Game",
+            "team_id": 1610612748,
+            "team_tricode": "MIA",
+            "opponent_team_id": 1610612764,
+            "opponent_team_tricode": "WAS",
+            "game_date": "2024-04-09",
+            "final_points": 83,
+            "points_from_2s": 26,
+            "points_from_3s": 21,
+            "points_from_fts": 36,
+            "competitive_scoring_share": 0.31,
+            "peak_projected_48": 167.4,
+        }
+
+        detail_card = build_detail_card(record, "game", pd.DataFrame())
+        comparison_tray = html.Div(build_comparison_tray([record]))
+        summary_strip = html.Div(build_chart_summary_strip([record], "game"))
+        headshot = _player_headshot(record, class_name="player-headshot player-headshot-small")
+
+        self.assertIn("Bam Adebayo", flatten_component_text(detail_card))
+        self.assertIn("Bam Adebayo · Full Game", flatten_component_text(comparison_tray))
+        self.assertIn("Bam Adebayo", flatten_component_text(summary_strip))
+        self.assertIn("cdn.nba.com/headshots/nba/latest/260x190/1628389.png", headshot.style["backgroundImage"])
+        self.assertIn("player-headshot-fallback.svg", headshot.style["backgroundImage"])
 
     def test_render_dashboard_view_empty_state_includes_active_filter_guidance(self) -> None:
         with TemporaryDirectory() as tmpdir:

@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 190 190" role="img" aria-label="Player headshot placeholder">
+  <rect width="190" height="190" rx="95" fill="#eadbc8" />
+  <circle cx="95" cy="72" r="34" fill="#9c8469" />
+  <path
+    d="M43 170c8-31 29-50 52-50s44 19 52 50"
+    fill="#9c8469"
+    stroke="#9c8469"
+    stroke-linecap="round"
+    stroke-linejoin="round"
+    stroke-width="8"
+  />
+</svg>

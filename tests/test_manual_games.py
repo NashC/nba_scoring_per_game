@@ -48,6 +48,7 @@ class ManualGamesTests(unittest.TestCase):
         outputs = build_supported_legacy_approximations()
         expected_period_points = {game.game_id: list(game.period_points) for game in LEGACY_GAME_APPROXIMATIONS}
         expected_totals = {game.game_id: sum(game.period_points) for game in LEGACY_GAME_APPROXIMATIONS}
+        expected_full_names = {game.game_id: game.player_full_name for game in LEGACY_GAME_APPROXIMATIONS}
         expected_three_point_values = {
             game.game_id: game.three_pointers_made * 3 for game in LEGACY_GAME_APPROXIMATIONS
         }
@@ -65,6 +66,8 @@ class ManualGamesTests(unittest.TestCase):
 
             self.assertEqual(int(raw_scoring["point_value"].sum()), expected_totals[game_id], game_id)
             self.assertEqual(int(game_summary.iloc[0]["final_points"]), expected_totals[game_id], game_id)
+            self.assertEqual(raw_scoring["player_name"].dropna().unique().tolist(), [expected_full_names[game_id]], game_id)
+            self.assertEqual(str(game_summary.iloc[0]["player_name"]), expected_full_names[game_id], game_id)
             self.assertEqual(
                 quarter_summary.sort_values("quarter_number")["quarter_points"].astype(int).tolist(),
                 expected_period_points[game_id],

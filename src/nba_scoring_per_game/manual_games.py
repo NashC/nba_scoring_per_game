@@ -459,7 +459,7 @@ def _build_legacy_raw_scoring_events(
                     "action_number": action_id,
                     "action_id": action_id,
                     "player_id": config.player_id,
-                    "player_name": config.player_name,
+                    "player_name": config.player_full_name,
                     "team_id": config.team_id,
                     "team_tricode": config.team_tricode,
                     "period": period_number,

@@ -1,10 +1,12 @@
 from __future__ import annotations
 
+from functools import lru_cache
 from pathlib import Path
 from typing import Any
 
 from dash import dcc, html
 from dash import dash_table
+from nba_api.stats.static import players as nba_players
 import pandas as pd
 
 from ..transforms import build_burst_timeline, build_half_timeline, build_quarter_timeline
@@ -30,6 +32,8 @@ from .state import (
 )
 
 _TEAM_LOGO_DIR = Path(__file__).with_name("assets") / "team_logos"
+_PLAYER_HEADSHOT_BASE_URL = "https://cdn.nba.com/headshots/nba/latest/260x190"
+_PLAYER_HEADSHOT_FALLBACK_SRC = "/assets/player-headshot-fallback.svg"
 
 
 def build_dashboard_layout(datasets: DashboardDatasets) -> html.Div:
@@ -628,6 +632,7 @@ def build_detail_card(record: dict[str, Any], entity_mode: str, timeline_df):
                     ("Burst End", f"{_period_string(record.get('end_period'))} · {record.get('end_clock')}", _estimated_burst_metrics(record)),
                 ]
             )
+    player_name = _player_display_name(record)
     return html.Div(
         className="detail-card",
         children=[
@@ -636,7 +641,13 @@ def build_detail_card(record: dict[str, Any], entity_mode: str, timeline_df):
                 children=[
                     html.Div(
                         children=[
-                            html.H3(record.get("player_name", "Unknown"), className="detail-card-title"),
+                            html.Div(
+                                className="detail-card-title-row",
+                                children=[
+                                    _player_headshot(record, class_name="player-headshot player-headshot-medium"),
+                                    html.H3(player_name, className="detail-card-title"),
+                                ],
+                            ),
                             html.Div(
                                 className="detail-card-subtitle detail-matchup-row",
                                 children=[
@@ -679,23 +690,26 @@ def build_detail_card(record: dict[str, Any], entity_mode: str, timeline_df):
 def build_comparison_tray(selected_records: list[dict[str, Any]]):
     if not selected_records:
         return html.Div("No active comparisons.", className="comparison-tray-empty")
-    chips = [
-        html.Div(
-            className="comparison-chip",
-            children=[
-                _team_logo_img(record.get("team_id"), record.get("team_tricode"), class_name="team-logo team-logo-small comparison-chip-logo"),
-                html.Span(f"{record.get('player_name')} · {record.get('entity_label')}", className="comparison-chip-label"),
-                html.Button(
-                    "Remove",
-                    id={"type": "comparison-remove", "selection_id": record["selection_id"]},
-                    className="comparison-chip-remove",
-                    n_clicks=0,
-                    title=f"Remove {record.get('player_name')} from the comparison set",
-                ),
-            ],
+    chips = []
+    for record in selected_records:
+        player_name = _player_display_name(record)
+        chips.append(
+            html.Div(
+                className="comparison-chip",
+                children=[
+                    _team_logo_img(record.get("team_id"), record.get("team_tricode"), class_name="team-logo team-logo-small comparison-chip-logo"),
+                    _player_headshot(record, class_name="player-headshot player-headshot-chip"),
+                    html.Span(f"{player_name} · {record.get('entity_label')}", className="comparison-chip-label"),
+                    html.Button(
+                        "Remove",
+                        id={"type": "comparison-remove", "selection_id": record["selection_id"]},
+                        className="comparison-chip-remove",
+                        n_clicks=0,
+                        title=f"Remove {player_name} from the comparison set",
+                    ),
+                ],
+            )
         )
-        for record in selected_records
-    ]
     actions = html.Div(
         className="comparison-actions",
         children=[
@@ -714,6 +728,7 @@ def build_chart_summary_strip(selected_records: list[dict[str, Any]], entity_mod
     cards = []
     for index, record in enumerate(selected_records[:4]):
         color = COMPARISON_COLORS[index % len(COMPARISON_COLORS)]
+        player_name = _player_display_name(record)
         cards.append(
             html.Div(
                 className="chart-summary-card",
@@ -724,28 +739,38 @@ def build_chart_summary_strip(selected_records: list[dict[str, Any]], entity_mod
                             html.Span(className="chart-summary-swatch", style={"backgroundColor": color}),
                             html.Div(
                                 children=[
-                                    html.Div(record.get("player_name", "Unknown"), className="chart-summary-player"),
                                     html.Div(
-                                        className="chart-summary-label chart-summary-matchup",
+                                        className="chart-summary-player-row",
                                         children=[
-                                            html.Span(record.get("entity_label", "Selection")),
-                                            html.Span("·", className="chart-summary-divider"),
-                                            _team_logo_img(
-                                                record.get("team_id"),
-                                                record.get("team_tricode"),
-                                                class_name="team-logo team-logo-small",
+                                            _player_headshot(record, class_name="player-headshot player-headshot-small"),
+                                            html.Div(
+                                                children=[
+                                                    html.Div(player_name, className="chart-summary-player"),
+                                                    html.Div(
+                                                        className="chart-summary-label chart-summary-matchup",
+                                                        children=[
+                                                            html.Span(record.get("entity_label", "Selection")),
+                                                            html.Span("·", className="chart-summary-divider"),
+                                                            _team_logo_img(
+                                                                record.get("team_id"),
+                                                                record.get("team_tricode"),
+                                                                class_name="team-logo team-logo-small",
+                                                            ),
+                                                            html.Span(record.get("team_tricode", "")),
+                                                            html.Span("vs", className="matchup-vs"),
+                                                            _team_logo_img(
+                                                                record.get("opponent_team_id"),
+                                                                record.get("opponent_team_tricode"),
+                                                                class_name="team-logo team-logo-small",
+                                                            ),
+                                                            html.Span(record.get("opponent_team_tricode", "")),
+                                                            html.Span("Playoffs", className="detail-mini-badge")
+                                                            if _is_playoff_game(record)
+                                                            else None,
+                                                        ],
+                                                    ),
+                                                ],
                                             ),
-                                            html.Span(record.get("team_tricode", "")),
-                                            html.Span("vs", className="matchup-vs"),
-                                            _team_logo_img(
-                                                record.get("opponent_team_id"),
-                                                record.get("opponent_team_tricode"),
-                                                class_name="team-logo team-logo-small",
-                                            ),
-                                            html.Span(record.get("opponent_team_tricode", "")),
-                                            html.Span("Playoffs", className="detail-mini-badge")
-                                            if _is_playoff_game(record)
-                                            else None,
                                         ],
                                     ),
                                 ],
@@ -917,6 +942,44 @@ def _metric_chip(label: str, value: Any, *, class_name: str | None = None) -> ht
             html.Div(display_value, className="metric-chip-value"),
             html.Div(label, className="metric-chip-label"),
         ],
+    )
+
+
+@lru_cache(maxsize=2048)
+def _lookup_player(player_id: Any) -> dict[str, Any] | None:
+    try:
+        player_id_int = int(player_id)
+    except (TypeError, ValueError):
+        return None
+    return nba_players.find_player_by_id(player_id_int)
+
+
+def _player_display_name(record: dict[str, Any]) -> str:
+    player = _lookup_player(record.get("player_id"))
+    if player is not None:
+        full_name = str(player.get("full_name", "")).strip()
+        if full_name:
+            return full_name
+    name = str(record.get("player_name", "")).strip()
+    return name or "Unknown"
+
+
+def _player_headshot_src(player_id: Any) -> str | None:
+    try:
+        return f"{_PLAYER_HEADSHOT_BASE_URL}/{int(player_id)}.png"
+    except (TypeError, ValueError):
+        return None
+
+
+def _player_headshot(record: dict[str, Any], *, class_name: str = "player-headshot") -> html.Span:
+    src = _player_headshot_src(record.get("player_id"))
+    background_images = [f"url('{_PLAYER_HEADSHOT_FALLBACK_SRC}')"]
+    if src is not None:
+        background_images.insert(0, f"url('{src}')")
+    return html.Span(
+        className=class_name,
+        title=_player_display_name(record),
+        style={"backgroundImage": ", ".join(background_images)},
     )
 
 
