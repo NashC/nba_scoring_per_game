@@ -396,6 +396,13 @@ class DashboardTests(unittest.TestCase):
                 )
             )
             self.assertTrue(
+                any(
+                    rule["if"].get("column_id") == "offensive_share_display"
+                    and rule.get("backgroundColor") == "#f4ebde"
+                    for rule in styles["style_data_conditional"]
+                )
+            )
+            self.assertTrue(
                 "/assets/team_logos/" in records[0]["team_logo_display"]
                 or records[0]["team_logo_display"] == "HOM"
             )
