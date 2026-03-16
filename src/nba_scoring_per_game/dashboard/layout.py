@@ -130,7 +130,6 @@ def build_dashboard_layout(datasets: DashboardDatasets) -> html.Div:
                     ),
                 ],
             ),
-            build_app_guide(),
             html.Details(
                 id="filter-panel",
                 className="filter-panel",
@@ -138,9 +137,9 @@ def build_dashboard_layout(datasets: DashboardDatasets) -> html.Div:
                     html.Summary(
                         className="filter-summary",
                         children=[
-                            html.Span("Filters and Compare Settings", className="filter-summary-title"),
+                            html.Span("Filters and Compare", className="filter-summary-title"),
                             html.Span(
-                                "Open when you need to narrow by player, era, efficiency, or competitiveness.",
+                                "Presets, player filters, era, efficiency, and competitiveness.",
                                 className="filter-summary-note",
                             ),
                         ],
@@ -500,43 +499,6 @@ def build_dashboard_layout(datasets: DashboardDatasets) -> html.Div:
             ),
         ],
     )
-
-
-def build_app_guide() -> html.Details:
-    return html.Details(
-        id="app-guide",
-        className="guide-panel",
-        children=[
-            html.Summary("How to Use This Explorer", className="guide-summary"),
-            html.Div(
-                className="guide-grid",
-                children=[
-                    _guide_block(
-                        "Quick Views",
-                        "Start with presets like top scoring games, best quarters, best halves, or best 3-minute bursts. "
-                        "Quick views stay synced with the preset filter and URL state.",
-                    ),
-                    _guide_block(
-                        "Leaderboard",
-                        "Change the ranking metric to reorder the table. The highlighted column is the active metric, "
-                        "and you can export the filtered leaderboard as CSV.",
-                    ),
-                    _guide_block(
-                        "Compare and Save",
-                        "Select up to 4 rows to compare. Save that view as a local bundle to restore the same filters "
-                        "and comparison set later in this browser.",
-                    ),
-                    _guide_block(
-                        "Chart and Context",
-                        "The main chart remains cumulative. Use raw or normalized time, shot markers, margin-context "
-                        "colors, and the secondary panel for rolling burst intensity or projected pace.",
-                    ),
-                ],
-            ),
-        ],
-    )
-
-
 def _hero_season_range_value(datasets: DashboardDatasets) -> str:
     official_frame = datasets.game_summaries
     if not official_frame.empty and "is_manual_approximation" in official_frame.columns:
@@ -846,16 +808,6 @@ def build_quick_view_bar(active_preset: str | None):
         )
         for option in build_quick_view_options()
     ]
-
-
-def _guide_block(title: str, body: str) -> html.Div:
-    return html.Div(
-        className="guide-block",
-        children=[
-            html.H3(title, className="guide-block-title"),
-            html.P(body, className="guide-block-body"),
-        ],
-    )
 
 
 def build_margin_legend():

@@ -261,7 +261,7 @@ The repo now also includes a Dash app package under [`dashboard/`](/Users/nash/D
 - a secondary analysis panel for rolling burst windows and projected pace
 - URL-persisted dashboard state and preset filters
 - local saved bundles that restore a dashboard view from browser storage
-- an in-app "How to Use This Explorer" guide for quick views, ranking, saved bundles, and chart modes
+- a compact filters-and-compare bar at the top of the dashboard
 - rich detail cards for the current selection set
 
 ## Validation behavior

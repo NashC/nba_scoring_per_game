@@ -67,7 +67,7 @@ def LiveLogo3D(
 
 def build_brand_lockup(
     title: str | None = "🏀 🔥 Heat Check",
-    kicker: str | None = "The NBA's Greatest Single Game Scoring Performances",
+    kicker: str | None = "The NBA's Greatest Scoring Performances",
     *,
     id: str | None = None,
     class_name: str | None = None,
