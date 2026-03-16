@@ -24,11 +24,15 @@
 }
 
 .hero-panel {
+  display: flex;
+  align-items: flex-start;
+  gap: 24px;
   padding: 28px 30px;
   margin-bottom: 18px;
 }
 
 .hero-copy {
+  flex: 1 1 0;
   min-width: 0;
   max-width: 920px;
 }
@@ -51,10 +55,11 @@
   display: grid;
   grid-template-columns: repeat(2, minmax(110px, 1fr));
   gap: 12px;
+  flex: 0 0 300px;
+  width: min(100%, 300px);
   min-width: 260px;
   align-content: start;
-  margin-top: 24px;
-  max-width: 440px;
+  margin-left: auto;
 }
 
 .brand-lockup {
@@ -1011,9 +1016,16 @@
     grid-template-columns: 1fr;
   }
 
+  .hero-panel {
+    flex-direction: column;
+  }
+
   .hero-metrics {
     grid-template-columns: repeat(4, minmax(0, 1fr));
+    width: 100%;
     max-width: none;
+    min-width: 0;
+    margin-left: 0;
   }
 }
 

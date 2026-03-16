@@ -174,6 +174,8 @@ Run the local explorer app:
   --port 8050
 ```
 
+`serve-app` now enables hot reload by default, so Python, CSS, and asset changes restart the local server and refresh the browser automatically. Use `--hot-reload false` if you want the previous manual-restart behavior, and `--debug true` if you also want Dash's full debug tooling.
+
 The app is read-only in v1. It loads local parquet outputs and `dataset_metadata.json`, validates the published schema version, eagerly loads summary tables, and lazily loads `player_scoring_timelines` only for the active comparison set.
 
 Phase 4 app features now include:

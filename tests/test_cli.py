@@ -68,6 +68,28 @@ class CliTests(unittest.TestCase):
             with self.assertRaisesRegex(FileNotFoundError, "missing metadata"):
                 self._run_cli("describe-datasets")
 
+    def test_serve_app_runs_dash_server_with_hot_reload_enabled_by_default(self) -> None:
+        app = Mock()
+        with patch("nba_scoring_per_game.cli.create_dashboard_app", return_value=app) as mock_create:
+            self._run_cli(
+                "serve-app",
+                "--out-dir",
+                "custom-data",
+                "--host",
+                "0.0.0.0",
+                "--port",
+                "9000",
+            )
+
+        mock_create.assert_called_once_with("custom-data")
+        app.run.assert_called_once_with(
+            host="0.0.0.0",
+            port=9000,
+            debug=False,
+            dev_tools_hot_reload=True,
+            use_reloader=True,
+        )
+
     def test_serve_app_runs_dash_server_with_parsed_debug_flag(self) -> None:
         app = Mock()
         with patch("nba_scoring_per_game.cli.create_dashboard_app", return_value=app) as mock_create:
@@ -84,11 +106,34 @@ class CliTests(unittest.TestCase):
             )
 
         mock_create.assert_called_once_with("custom-data")
-        app.run.assert_called_once_with(host="0.0.0.0", port=9000, debug=True)
+        app.run.assert_called_once_with(
+            host="0.0.0.0",
+            port=9000,
+            debug=True,
+            dev_tools_hot_reload=True,
+            use_reloader=True,
+        )
+
+    def test_serve_app_can_disable_hot_reload(self) -> None:
+        app = Mock()
+        with patch("nba_scoring_per_game.cli.create_dashboard_app", return_value=app):
+            self._run_cli("serve-app", "--hot-reload", "no")
+
+        app.run.assert_called_once_with(
+            host="127.0.0.1",
+            port=8050,
+            debug=False,
+            dev_tools_hot_reload=False,
+            use_reloader=False,
+        )
 
     def test_serve_app_rejects_invalid_debug_values(self) -> None:
         with self.assertRaisesRegex(ValueError, "Could not parse boolean value"):
             self._run_cli("serve-app", "--debug", "maybe")
+
+    def test_serve_app_rejects_invalid_hot_reload_values(self) -> None:
+        with self.assertRaisesRegex(ValueError, "Could not parse boolean value"):
+            self._run_cli("serve-app", "--hot-reload", "maybe")
 
     def test_process_game_prints_artifact_manifest_row(self) -> None:
         manifest = pd.DataFrame([make_manifest_row()])

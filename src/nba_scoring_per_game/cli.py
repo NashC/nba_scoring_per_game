@@ -27,6 +27,7 @@ def main() -> None:
     serve_parser.add_argument("--host", default="127.0.0.1")
     serve_parser.add_argument("--port", type=int, default=8050)
     serve_parser.add_argument("--debug", default="false")
+    serve_parser.add_argument("--hot-reload", default="true")
 
     process_parser = subparsers.add_parser("process-game", help="Process one game and write outputs")
     process_parser.add_argument("--game-id", required=True)
@@ -84,8 +85,15 @@ def main() -> None:
 
     if args.command == "serve-app":
         debug = _parse_bool(args.debug)
+        hot_reload = _parse_bool(args.hot_reload)
         app = create_dashboard_app(args.out_dir)
-        app.run(host=args.host, port=args.port, debug=debug)
+        app.run(
+            host=args.host,
+            port=args.port,
+            debug=debug,
+            dev_tools_hot_reload=hot_reload,
+            use_reloader=hot_reload or debug,
+        )
         return
 
     if args.command == "process-game":

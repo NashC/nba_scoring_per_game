@@ -120,16 +120,16 @@ def build_dashboard_layout(datasets: DashboardDatasets) -> html.Div:
                                 "Compare volume, pace, burst intensity, shot mix, and competitiveness across the best scoring performances ever.",
                                 className="app-subtitle",
                             ),
-                            html.Div(
-                                className="hero-metrics",
-                                children=[
-                                    _metric_chip("Games", len(datasets.game_summaries)),
-                                    _metric_chip("Quarters", len(datasets.quarter_summaries)),
-                                    _metric_chip("Halves", len(datasets.half_summaries)),
-                                    _metric_chip("Bursts", len(datasets.burst_summaries)),
-                                ],
-                            ),
                         ]
+                    ),
+                    html.Div(
+                        className="hero-metrics",
+                        children=[
+                            _metric_chip("Games", len(datasets.game_summaries)),
+                            _metric_chip("Quarters", len(datasets.quarter_summaries)),
+                            _metric_chip("Halves", len(datasets.half_summaries)),
+                            _metric_chip("Bursts", len(datasets.burst_summaries)),
+                        ],
                     ),
                 ],
             ),
