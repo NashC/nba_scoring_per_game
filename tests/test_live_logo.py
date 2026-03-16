@@ -71,8 +71,8 @@ class LiveLogoTests(unittest.TestCase):
             build_test_outputs(tmpdir)
             app = create_dashboard_app(tmpdir)
             self.assertIsNotNone(find_component_by_id(app.layout, "hero-brand-lockup"))
-            self.assertIsNotNone(find_component_by_id(app.layout, "hero-live-logo"))
-            self.assertIsNotNone(find_component_by_id(app.layout, "hero-brand-stage"))
+            self.assertIsNone(find_component_by_id(app.layout, "hero-live-logo"))
+            self.assertIsNone(find_component_by_id(app.layout, "hero-brand-stage"))
 
         with TemporaryDirectory() as tmpdir:
             app = create_dashboard_app(tmpdir)

@@ -8,7 +8,7 @@ from dash import dash_table
 import pandas as pd
 
 from ..transforms import build_burst_timeline, build_half_timeline, build_quarter_timeline
-from .branding import LiveLogo3D, build_brand_lockup
+from .branding import build_brand_lockup
 from .charts import (
     COMPARISON_COLORS,
     SHOT_COLORS,
@@ -130,28 +130,6 @@ def build_dashboard_layout(datasets: DashboardDatasets) -> html.Div:
                                 ],
                             ),
                         ]
-                    ),
-                    html.Div(
-                        id="hero-brand-stage",
-                        className="hero-brand-stage",
-                        children=[
-                            html.Div(
-                                className="hero-brand-stage-inner",
-                                children=[
-                                    html.Div("Premium brand mark", className="hero-brand-stage-eyebrow"),
-                                    LiveLogo3D(
-                                        id="hero-live-logo",
-                                        variant="hero",
-                                        decorative=True,
-                                        class_name="hero-live-logo",
-                                    ),
-                                    html.P(
-                                        "A live basketball mark with controlled fire, tuned for a dark shell and small-size clarity.",
-                                        className="hero-brand-stage-note",
-                                    ),
-                                ],
-                            )
-                        ],
                     ),
                 ],
             ),

@@ -24,17 +24,13 @@
 }
 
 .hero-panel {
-  display: flex;
-  justify-content: space-between;
-  align-items: stretch;
-  gap: 24px;
   padding: 28px 30px;
   margin-bottom: 18px;
 }
 
 .hero-copy {
-  flex: 1 1 0;
   min-width: 0;
+  max-width: 920px;
 }
 
 .app-title {
@@ -88,56 +84,6 @@
   letter-spacing: 0.14em;
   color: #8e3b46;
   font-weight: 800;
-}
-
-.hero-brand-stage {
-  flex: 0 0 min(360px, 34vw);
-  min-width: 290px;
-  display: flex;
-}
-
-.hero-brand-stage-inner {
-  position: relative;
-  width: 100%;
-  overflow: hidden;
-  border-radius: 28px;
-  padding: 18px 20px 22px;
-  border: 1px solid rgba(255, 194, 133, 0.14);
-  background:
-    radial-gradient(circle at 26% 78%, rgba(255, 131, 54, 0.16), transparent 36%),
-    radial-gradient(circle at 78% 20%, rgba(255, 183, 109, 0.12), transparent 30%),
-    linear-gradient(180deg, #19110e 0%, #110b09 100%);
-  box-shadow:
-    inset 0 1px 0 rgba(255, 219, 187, 0.08),
-    inset 0 -32px 60px rgba(0, 0, 0, 0.34),
-    0 24px 44px rgba(33, 21, 13, 0.18);
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-}
-
-.hero-brand-stage-eyebrow {
-  align-self: flex-start;
-  font-size: 0.7rem;
-  text-transform: uppercase;
-  letter-spacing: 0.18em;
-  font-weight: 800;
-  color: rgba(255, 197, 139, 0.7);
-}
-
-.hero-live-logo {
-  width: min(100%, var(--live-logo-size));
-}
-
-.hero-brand-stage-note {
-  margin: 0;
-  font-size: 0.88rem;
-  line-height: 1.45;
-  text-align: center;
-  color: rgba(250, 234, 219, 0.74);
-  max-width: 25ch;
 }
 
 .live-logo {
@@ -1065,24 +1011,6 @@
     grid-template-columns: 1fr;
   }
 
-  .hero-panel {
-    flex-direction: column;
-  }
-
-  .hero-brand-stage {
-    min-width: 0;
-    max-width: none;
-  }
-
-  .hero-brand-stage-inner {
-    align-items: flex-start;
-  }
-
-  .hero-brand-stage-note {
-    max-width: none;
-    text-align: left;
-  }
-
   .hero-metrics {
     grid-template-columns: repeat(4, minmax(0, 1fr));
     max-width: none;
@@ -1103,10 +1031,6 @@
   .detail-grid,
   .chart-summary-metrics {
     grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-
-  .hero-brand-stage-inner {
-    padding: 16px 16px 20px;
   }
 
   .brand-lockup {
@@ -1131,10 +1055,6 @@
 
   .brand-lockup-copy {
     gap: 4px;
-  }
-
-  .hero-brand-stage-note {
-    font-size: 0.82rem;
   }
 }
 
