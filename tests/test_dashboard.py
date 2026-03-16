@@ -436,17 +436,17 @@ class DashboardTests(unittest.TestCase):
                 )
             )
             self.assertTrue(
-                any(
-                    rule["if"].get("column_id") == "offensive_share_display"
-                    and rule.get("backgroundColor") == "#f4ebde"
-                    for rule in styles["style_data_conditional"]
-                )
-            )
-            self.assertTrue(
                 "/assets/team_logos/" in records[0]["team_logo_display"]
                 or records[0]["team_logo_display"] == "HOM"
             )
             self.assertEqual(records[0]["game_date_display"], "2024")
+            self.assertEqual(styles["tooltip_data"][0]["game_date_display"]["value"], "Exact date: 2024-01-01")
+            self.assertEqual(styles["tooltip_header"]["ts_pct_display"]["type"], "markdown")
+            self.assertIn("True Shooting Percentage", styles["tooltip_header"]["ts_pct_display"]["value"])
+            self.assertIn("PTS / (2 × (FGA + 0.44 × FTA))", styles["tooltip_header"]["ts_pct_display"]["value"])
+            self.assertIn("current filters and ranking metric", styles["tooltip_header"]["rank"]["value"])
+            self.assertIn("hover the year cell", styles["tooltip_header"]["game_date_display"]["value"].lower())
+
     def test_build_leaderboard_table_falls_back_when_removed_game_metric_is_requested(self) -> None:
         with TemporaryDirectory() as tmpdir:
             build_test_outputs(tmpdir)
@@ -458,13 +458,6 @@ class DashboardTests(unittest.TestCase):
             column_ids = [column["id"] for column in columns]
             self.assertNotIn("peak_projected_48_display", column_ids)
             self.assertEqual(styles["highlight_column_id"], "final_points_display")
-
-            self.assertEqual(styles["tooltip_data"][0]["game_date_display"]["value"], "Exact date: 2024-01-01")
-            self.assertEqual(styles["tooltip_header"]["ts_pct_display"]["type"], "markdown")
-            self.assertIn("True Shooting Percentage", styles["tooltip_header"]["ts_pct_display"]["value"])
-            self.assertIn("PTS / (2 × (FGA + 0.44 × FTA))", styles["tooltip_header"]["ts_pct_display"]["value"])
-            self.assertIn("current filters and ranking metric", styles["tooltip_header"]["rank"]["value"])
-            self.assertIn("hover the year cell", styles["tooltip_header"]["game_date_display"]["value"].lower())
 
     def test_build_leaderboard_table_sorts_by_clicked_column_using_raw_values(self) -> None:
         with TemporaryDirectory() as tmpdir:

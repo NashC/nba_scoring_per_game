@@ -1,0 +1,97 @@
+{
+  "completed_at": "2026-03-15T19:50:57",
+  "failed_season_runs": 1,
+  "network_error_games": 0,
+  "on_disk_player_game_rows": 5646,
+  "on_disk_unique_games": 319,
+  "on_disk_unique_players": 1340,
+  "other_error_games": 0,
+  "out_dir": "data",
+  "requested_games": 58,
+  "requested_season_runs": 7,
+  "run_date": "2026-03-15-retry",
+  "season_runs": [
+    {
+      "manifest_games": 4,
+      "processed_rows": 4,
+      "season": "2022-23",
+      "season_type": "Playoffs",
+      "skipped_existing_games": 4,
+      "status": "ok",
+      "status_counts": {
+        "success": 4
+      },
+      "success_games": 4
+    },
+    {
+      "manifest_games": 20,
+      "processed_rows": 20,
+      "season": "2023-24",
+      "season_type": "Regular Season",
+      "skipped_existing_games": 19,
+      "status": "ok",
+      "status_counts": {
+        "success": 19,
+        "transform_error": 1
+      },
+      "success_games": 19
+    },
+    {
+      "manifest_games": 2,
+      "processed_rows": 2,
+      "season": "2023-24",
+      "season_type": "Playoffs",
+      "skipped_existing_games": 2,
+      "status": "ok",
+      "status_counts": {
+        "success": 2
+      },
+      "success_games": 2
+    },
+    {
+      "manifest_games": 18,
+      "processed_rows": 18,
+      "season": "2024-25",
+      "season_type": "Regular Season",
+      "skipped_existing_games": 18,
+      "status": "ok",
+      "status_counts": {
+        "success": 18
+      },
+      "success_games": 18
+    },
+    {
+      "manifest_games": 0,
+      "season": "2024-25",
+      "season_type": "Playoffs",
+      "status": "no_games"
+    },
+    {
+      "manifest_games": 14,
+      "processed_rows": 14,
+      "season": "2025-26",
+      "season_type": "Regular Season",
+      "skipped_existing_games": 13,
+      "status": "ok",
+      "status_counts": {
+        "success": 13,
+        "transform_error": 1
+      },
+      "success_games": 13
+    },
+    {
+      "error_message": "No team game logs returned for season=2025-26 season_type=Playoffs",
+      "error_type": "ValueError",
+      "season": "2025-26",
+      "season_type": "Playoffs",
+      "status": "manifest_error"
+    }
+  ],
+  "skipped_existing_games": 56,
+  "started_at": "2026-03-15T19:50:42",
+  "success_games": 56,
+  "successful_season_runs": 5,
+  "transform_error_games": 2,
+  "validation_error_games": 0,
+  "write_error_games": 0
+}

@@ -50,6 +50,7 @@ _LEADERBOARD_TABLE_CSS = [
         "rule": "margin: 0; overflow: visible !important;",
     },
 ]
+
 _PLAYER_HEADSHOT_BASE_URL = "https://cdn.nba.com/headshots/nba/latest/260x190"
 _PLAYER_HEADSHOT_FALLBACK_SRC = "/assets/player-headshot-fallback.svg"
 

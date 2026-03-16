@@ -1,0 +1,574 @@
+{
+  "started_at": "2026-03-15T18:38:42",
+  "out_dir": "data",
+  "min_player_points": 50,
+  "season_runs": [
+    {
+      "season": "1998-99",
+      "season_type": "Regular Season",
+      "status": "no_games",
+      "manifest_games": 0
+    },
+    {
+      "season": "1998-99",
+      "season_type": "Playoffs",
+      "status": "no_games",
+      "manifest_games": 0
+    },
+    {
+      "season": "1999-00",
+      "season_type": "Regular Season",
+      "status": "ok",
+      "manifest_games": 4,
+      "processed_rows": 4,
+      "status_counts": {
+        "success": 4
+      },
+      "success_games": 4,
+      "skipped_existing_games": 0
+    },
+    {
+      "season": "1999-00",
+      "season_type": "Playoffs",
+      "status": "ok",
+      "manifest_games": 1,
+      "processed_rows": 1,
+      "status_counts": {
+        "success": 1
+      },
+      "success_games": 1,
+      "skipped_existing_games": 0
+    },
+    {
+      "season": "2000-01",
+      "season_type": "Regular Season",
+      "status": "ok",
+      "manifest_games": 8,
+      "processed_rows": 8,
+      "status_counts": {
+        "success": 8
+      },
+      "success_games": 8,
+      "skipped_existing_games": 0
+    },
+    {
+      "season": "2000-01",
+      "season_type": "Playoffs",
+      "status": "ok",
+      "manifest_games": 3,
+      "processed_rows": 3,
+      "status_counts": {
+        "success": 3
+      },
+      "success_games": 3,
+      "skipped_existing_games": 0
+    },
+    {
+      "season": "2001-02",
+      "season_type": "Regular Season",
+      "status": "ok",
+      "manifest_games": 6,
+      "processed_rows": 6,
+      "status_counts": {
+        "success": 5,
+        "transform_error": 1
+      },
+      "success_games": 5,
+      "skipped_existing_games": 0
+    },
+    {
+      "season": "2001-02",
+      "season_type": "Playoffs",
+      "status": "no_games",
+      "manifest_games": 0
+    },
+    {
+      "season": "2002-03",
+      "season_type": "Regular Season",
+      "status": "ok",
+      "manifest_games": 7,
+      "processed_rows": 7,
+      "status_counts": {
+        "success": 7
+      },
+      "success_games": 7,
+      "skipped_existing_games": 0
+    },
+    {
+      "season": "2002-03",
+      "season_type": "Playoffs",
+      "status": "ok",
+      "manifest_games": 1,
+      "processed_rows": 1,
+      "status_counts": {
+        "success": 1
+      },
+      "success_games": 1,
+      "skipped_existing_games": 0
+    },
+    {
+      "season": "2003-04",
+      "season_type": "Regular Season",
+      "status": "ok",
+      "manifest_games": 5,
+      "processed_rows": 5,
+      "status_counts": {
+        "success": 5
+      },
+      "success_games": 5,
+      "skipped_existing_games": 0
+    },
+    {
+      "season": "2003-04",
+      "season_type": "Playoffs",
+      "status": "no_games",
+      "manifest_games": 0
+    },
+    {
+      "season": "2004-05",
+      "season_type": "Regular Season",
+      "status": "ok",
+      "manifest_games": 8,
+      "processed_rows": 8,
+      "status_counts": {
+        "success": 8
+      },
+      "success_games": 8,
+      "skipped_existing_games": 0
+    },
+    {
+      "season": "2004-05",
+      "season_type": "Playoffs",
+      "status": "no_games",
+      "manifest_games": 0
+    },
+    {
+      "season": "2005-06",
+      "season_type": "Regular Season",
+      "status": "ok",
+      "manifest_games": 12,
+      "processed_rows": 12,
+      "status_counts": {
+        "success": 12
+      },
+      "success_games": 12,
+      "skipped_existing_games": 0
+    },
+    {
+      "season": "2005-06",
+      "season_type": "Playoffs",
+      "status": "ok",
+      "manifest_games": 2,
+      "processed_rows": 2,
+      "status_counts": {
+        "success": 2
+      },
+      "success_games": 2,
+      "skipped_existing_games": 0
+    },
+    {
+      "season": "2006-07",
+      "season_type": "Regular Season",
+      "status": "ok",
+      "manifest_games": 18,
+      "processed_rows": 18,
+      "status_counts": {
+        "success": 18
+      },
+      "success_games": 18,
+      "skipped_existing_games": 0
+    },
+    {
+      "season": "2006-07",
+      "season_type": "Playoffs",
+      "status": "no_games",
+      "manifest_games": 0
+    },
+    {
+      "season": "2007-08",
+      "season_type": "Regular Season",
+      "status": "ok",
+      "manifest_games": 5,
+      "processed_rows": 5,
+      "status_counts": {
+        "success": 5
+      },
+      "success_games": 5,
+      "skipped_existing_games": 0
+    },
+    {
+      "season": "2007-08",
+      "season_type": "Playoffs",
+      "status": "no_games",
+      "manifest_games": 0
+    },
+    {
+      "season": "2008-09",
+      "season_type": "Regular Season",
+      "status": "ok",
+      "manifest_games": 11,
+      "processed_rows": 11,
+      "status_counts": {
+        "success": 11
+      },
+      "success_games": 11,
+      "skipped_existing_games": 0
+    },
+    {
+      "season": "2008-09",
+      "season_type": "Playoffs",
+      "status": "ok",
+      "manifest_games": 1,
+      "processed_rows": 1,
+      "status_counts": {
+        "success": 1
+      },
+      "success_games": 1,
+      "skipped_existing_games": 0
+    },
+    {
+      "season": "2009-10",
+      "season_type": "Regular Season",
+      "status": "ok",
+      "manifest_games": 3,
+      "processed_rows": 3,
+      "status_counts": {
+        "success": 3
+      },
+      "success_games": 3,
+      "skipped_existing_games": 0
+    },
+    {
+      "season": "2009-10",
+      "season_type": "Playoffs",
+      "status": "no_games",
+      "manifest_games": 0
+    },
+    {
+      "season": "2010-11",
+      "season_type": "Regular Season",
+      "status": "ok",
+      "manifest_games": 2,
+      "processed_rows": 2,
+      "status_counts": {
+        "success": 2
+      },
+      "success_games": 2,
+      "skipped_existing_games": 0
+    },
+    {
+      "season": "2010-11",
+      "season_type": "Playoffs",
+      "status": "no_games",
+      "manifest_games": 0
+    },
+    {
+      "season": "2011-12",
+      "season_type": "Regular Season",
+      "status": "ok",
+      "manifest_games": 3,
+      "processed_rows": 3,
+      "status_counts": {
+        "success": 3
+      },
+      "success_games": 3,
+      "skipped_existing_games": 0
+    },
+    {
+      "season": "2011-12",
+      "season_type": "Playoffs",
+      "status": "no_games",
+      "manifest_games": 0
+    },
+    {
+      "season": "2012-13",
+      "season_type": "Regular Season",
+      "status": "ok",
+      "manifest_games": 3,
+      "processed_rows": 3,
+      "status_counts": {
+        "success": 3
+      },
+      "success_games": 3,
+      "skipped_existing_games": 0
+    },
+    {
+      "season": "2012-13",
+      "season_type": "Playoffs",
+      "status": "no_games",
+      "manifest_games": 0
+    },
+    {
+      "season": "2013-14",
+      "season_type": "Regular Season",
+      "status": "ok",
+      "manifest_games": 6,
+      "processed_rows": 6,
+      "status_counts": {
+        "success": 6
+      },
+      "success_games": 6,
+      "skipped_existing_games": 0
+    },
+    {
+      "season": "2013-14",
+      "season_type": "Playoffs",
+      "status": "no_games",
+      "manifest_games": 0
+    },
+    {
+      "season": "2014-15",
+      "season_type": "Regular Season",
+      "status": "ok",
+      "manifest_games": 8,
+      "processed_rows": 8,
+      "status_counts": {
+        "success": 8
+      },
+      "success_games": 8,
+      "skipped_existing_games": 0
+    },
+    {
+      "season": "2014-15",
+      "season_type": "Playoffs",
+      "status": "no_games",
+      "manifest_games": 0
+    },
+    {
+      "season": "2015-16",
+      "season_type": "Regular Season",
+      "status": "ok",
+      "manifest_games": 11,
+      "processed_rows": 11,
+      "status_counts": {
+        "success": 11
+      },
+      "success_games": 11,
+      "skipped_existing_games": 0
+    },
+    {
+      "season": "2015-16",
+      "season_type": "Playoffs",
+      "status": "no_games",
+      "manifest_games": 0
+    },
+    {
+      "season": "2016-17",
+      "season_type": "Regular Season",
+      "status": "ok",
+      "manifest_games": 14,
+      "processed_rows": 14,
+      "status_counts": {
+        "success": 14
+      },
+      "success_games": 14,
+      "skipped_existing_games": 0
+    },
+    {
+      "season": "2016-17",
+      "season_type": "Playoffs",
+      "status": "ok",
+      "manifest_games": 2,
+      "processed_rows": 2,
+      "status_counts": {
+        "success": 2
+      },
+      "success_games": 2,
+      "skipped_existing_games": 0
+    },
+    {
+      "season": "2017-18",
+      "season_type": "Regular Season",
+      "status": "ok",
+      "manifest_games": 13,
+      "processed_rows": 13,
+      "status_counts": {
+        "success": 10,
+        "transform_error": 3
+      },
+      "success_games": 10,
+      "skipped_existing_games": 0
+    },
+    {
+      "season": "2017-18",
+      "season_type": "Playoffs",
+      "status": "ok",
+      "manifest_games": 1,
+      "processed_rows": 1,
+      "status_counts": {
+        "success": 1
+      },
+      "success_games": 1,
+      "skipped_existing_games": 0
+    },
+    {
+      "season": "2018-19",
+      "season_type": "Regular Season",
+      "status": "ok",
+      "manifest_games": 22,
+      "processed_rows": 22,
+      "status_counts": {
+        "success": 21,
+        "transform_error": 1
+      },
+      "success_games": 21,
+      "skipped_existing_games": 0
+    },
+    {
+      "season": "2018-19",
+      "season_type": "Playoffs",
+      "status": "ok",
+      "manifest_games": 2,
+      "processed_rows": 2,
+      "status_counts": {
+        "success": 2
+      },
+      "success_games": 2,
+      "skipped_existing_games": 0
+    },
+    {
+      "season": "2019-20",
+      "season_type": "Regular Season",
+      "status": "ok",
+      "manifest_games": 23,
+      "processed_rows": 23,
+      "status_counts": {
+        "success": 23
+      },
+      "success_games": 23,
+      "skipped_existing_games": 0
+    },
+    {
+      "season": "2019-20",
+      "season_type": "Playoffs",
+      "status": "ok",
+      "manifest_games": 3,
+      "processed_rows": 3,
+      "status_counts": {
+        "success": 3
+      },
+      "success_games": 3,
+      "skipped_existing_games": 0
+    },
+    {
+      "season": "2020-21",
+      "season_type": "Regular Season",
+      "status": "ok",
+      "manifest_games": 14,
+      "processed_rows": 14,
+      "status_counts": {
+        "success": 14
+      },
+      "success_games": 14,
+      "skipped_existing_games": 0
+    },
+    {
+      "season": "2020-21",
+      "season_type": "Playoffs",
+      "status": "ok",
+      "manifest_games": 3,
+      "processed_rows": 3,
+      "status_counts": {
+        "success": 3
+      },
+      "success_games": 3,
+      "skipped_existing_games": 0
+    },
+    {
+      "season": "2021-22",
+      "season_type": "Regular Season",
+      "status": "ok",
+      "manifest_games": 19,
+      "processed_rows": 19,
+      "status_counts": {
+        "success": 19
+      },
+      "success_games": 19,
+      "skipped_existing_games": 0
+    },
+    {
+      "season": "2021-22",
+      "season_type": "Playoffs",
+      "status": "no_games",
+      "manifest_games": 0
+    },
+    {
+      "season": "2022-23",
+      "season_type": "Regular Season",
+      "status": "ok",
+      "manifest_games": 25,
+      "processed_rows": 25,
+      "status_counts": {
+        "network_error": 17,
+        "success": 7,
+        "transform_error": 1
+      },
+      "success_games": 7,
+      "skipped_existing_games": 0
+    },
+    {
+      "season": "2022-23",
+      "season_type": "Playoffs",
+      "status": "manifest_error",
+      "error_type": "ReadTimeout",
+      "error_message": "HTTPSConnectionPool(host='stats.nba.com', port=443): Read timed out. (read timeout=30)"
+    },
+    {
+      "season": "2023-24",
+      "season_type": "Regular Season",
+      "status": "manifest_error",
+      "error_type": "ReadTimeout",
+      "error_message": "HTTPSConnectionPool(host='stats.nba.com', port=443): Read timed out. (read timeout=30)"
+    },
+    {
+      "season": "2023-24",
+      "season_type": "Playoffs",
+      "status": "manifest_error",
+      "error_type": "ReadTimeout",
+      "error_message": "HTTPSConnectionPool(host='stats.nba.com', port=443): Read timed out. (read timeout=30)"
+    },
+    {
+      "season": "2024-25",
+      "season_type": "Regular Season",
+      "status": "manifest_error",
+      "error_type": "ReadTimeout",
+      "error_message": "HTTPSConnectionPool(host='stats.nba.com', port=443): Read timed out. (read timeout=30)"
+    },
+    {
+      "season": "2024-25",
+      "season_type": "Playoffs",
+      "status": "manifest_error",
+      "error_type": "ReadTimeout",
+      "error_message": "HTTPSConnectionPool(host='stats.nba.com', port=443): Read timed out. (read timeout=30)"
+    },
+    {
+      "season": "2025-26",
+      "season_type": "Regular Season",
+      "status": "manifest_error",
+      "error_type": "ReadTimeout",
+      "error_message": "HTTPSConnectionPool(host='stats.nba.com', port=443): Read timed out. (read timeout=30)"
+    },
+    {
+      "season": "2025-26",
+      "season_type": "Playoffs",
+      "status": "manifest_error",
+      "error_type": "ReadTimeout",
+      "error_message": "HTTPSConnectionPool(host='stats.nba.com', port=443): Read timed out. (read timeout=30)"
+    }
+  ],
+  "totals": {
+    "requested_season_runs": 56,
+    "successful_season_runs": 49,
+    "failed_season_runs": 7,
+    "requested_games": 269,
+    "processed_rows": 269,
+    "success_games": 246,
+    "skipped_existing_games": 0,
+    "validation_error_games": 0,
+    "transform_error_games": 6,
+    "network_error_games": 17,
+    "write_error_games": 0,
+    "other_error_games": 0
+  },
+  "finished_at": "2026-03-15T19:29:12"
+}
