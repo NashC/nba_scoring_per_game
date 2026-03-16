@@ -35,6 +35,8 @@ from .state import (
     serialize_saved_bundle,
 )
 
+_PRESET_FILTER_OUTPUT_COUNT = 19
+
 
 def create_dashboard_app(out_dir: str | Path = "data") -> Dash:
     """Create the Dash app for exploring scoring trajectories and scoring context."""
@@ -132,6 +134,177 @@ def render_dashboard_view(
     }
 
 
+def _quick_view_preset(triggered_id: Any) -> str | Any:
+    if isinstance(triggered_id, dict) and triggered_id.get("type") == "quick-view-button":
+        return triggered_id.get("preset")
+    return no_update
+
+
+def _preset_filter_values(preset: str | None, current_search: str | None) -> tuple[Any, ...]:
+    if not preset:
+        return (no_update,) * _PRESET_FILTER_OUTPUT_COUNT
+    current_state = decode_dashboard_state(current_search)
+    if current_state["filters"].preset == preset:
+        return (no_update,) * _PRESET_FILTER_OUTPUT_COUNT
+    filters = apply_dashboard_preset(preset)
+    return (
+        filters.entity_mode,
+        filters.ranking_metric,
+        filters.time_mode,
+        filters.burst_window,
+        filters.analysis_mode,
+        filters.analysis_window,
+        ["include"] if filters.include_ot else [],
+        ["competitive"] if filters.competitive_only else [],
+        filters.min_points,
+        filters.min_competitive_share,
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+    )
+
+
+def _saved_bundle_options(saved_bundles: Any, current_value: str | None) -> tuple[list[dict[str, str]], str | None]:
+    bundles = normalize_saved_bundles(saved_bundles)
+    options = [{"label": bundle.name, "value": bundle.id} for bundle in bundles]
+    valid_ids = {bundle.id for bundle in bundles}
+    if current_value in valid_ids:
+        value = current_value
+    else:
+        value = bundles[0].id if bundles else None
+    return options, value
+
+
+def _saved_bundle_action(
+    *,
+    triggered_id: Any,
+    saved_bundles: Any,
+    bundle_name: str | None,
+    selected_bundle_id: str | None,
+    filters: DashboardFilters | None,
+    selected_row_ids: list[str] | None,
+) -> tuple[Any, Any, Any]:
+    bundles = normalize_saved_bundles(saved_bundles)
+    if triggered_id == "save-bundle":
+        clean_name = str(bundle_name or "").strip()
+        if not selected_row_ids:
+            return no_update, "Select at least one comparison before saving a bundle.", no_update
+        if not clean_name:
+            return no_update, "Enter a bundle name before saving.", no_update
+        if filters is None:
+            raise ValueError("filters are required when saving a bundle")
+        new_bundle = serialize_saved_bundle(clean_name, filters, list(selected_row_ids or []))
+        bundles = [bundle for bundle in bundles if bundle.name.lower() != clean_name.lower()]
+        bundles.insert(0, new_bundle)
+        bundles = bundles[:12]
+        return saved_bundles_payload(bundles), f'Saved bundle "{clean_name}".', ""
+    if triggered_id == "delete-bundle":
+        if not selected_bundle_id:
+            return no_update, "Choose a saved bundle to delete.", no_update
+        remaining = [bundle for bundle in bundles if bundle.id != selected_bundle_id]
+        if len(remaining) == len(bundles):
+            return no_update, "Saved bundle was not found.", no_update
+        return saved_bundles_payload(remaining), "Deleted saved bundle.", no_update
+    return no_update, no_update, no_update
+
+
+def _saved_bundle_search(load_clicks: int, selected_bundle_id: str | None, saved_bundles: Any) -> str | Any:
+    if not load_clicks or not selected_bundle_id:
+        return no_update
+    bundles = normalize_saved_bundles(saved_bundles)
+    for bundle in bundles:
+        if bundle.id == selected_bundle_id:
+            return bundle.search
+    return no_update
+
+
+def _metric_visibility(
+    entity_mode: str,
+    current_metric: str | None,
+    analysis_mode: str | None,
+    line_color_mode: str | None,
+) -> tuple[Any, ...]:
+    options = get_ranking_options(entity_mode)
+    valid_values = {option["value"] for option in options}
+    value = current_metric if current_metric in valid_values else default_ranking_metric(entity_mode)
+    show_game_only = {} if entity_mode == "game" else {"display": "none"}
+    show_burst = {} if entity_mode == "burst" else {"display": "none"}
+    show_analysis_window = {} if analysis_mode in {"rolling_points", "rolling_rate"} else {"display": "none"}
+    show_margin = {"display": "flex"} if line_color_mode == "margin" else {"display": "none"}
+    if entity_mode == "burst":
+        secondary_chart_style = {"display": "none"}
+        secondary_note_style = {"display": "block"}
+    else:
+        secondary_chart_style = {}
+        secondary_note_style = {"display": "none"}
+    return (
+        options,
+        value,
+        show_burst,
+        show_analysis_window,
+        show_game_only,
+        show_game_only,
+        show_game_only,
+        show_margin,
+        secondary_chart_style,
+        secondary_note_style,
+    )
+
+
+def _selection_ids_from_tray(triggered_id: Any, selected_row_ids: list[str] | None) -> list[str] | Any:
+    current_ids = list(selected_row_ids or [])
+    if triggered_id == "clear-comparisons":
+        return []
+    if triggered_id == "remove-last-comparison":
+        return current_ids[:-1]
+    if isinstance(triggered_id, dict) and triggered_id.get("type") == "comparison-remove":
+        target_id = triggered_id.get("selection_id")
+        return [selection_id for selection_id in current_ids if selection_id != target_id]
+    return no_update
+
+
+def _effective_selected_ids(
+    triggered_id: Any,
+    url_selected_ids: list[str] | None,
+    selected_row_ids: list[str] | None,
+) -> list[str] | None:
+    if triggered_id == "url-selected-ids" and url_selected_ids:
+        return list(url_selected_ids or [])
+    return selected_row_ids
+
+
+def _updated_url_search(
+    filters: DashboardFilters,
+    current_search: str | None,
+) -> str | Any:
+    next_search = encode_dashboard_state(filters)
+    current_filters = decode_dashboard_state(current_search)["filters"]
+    current_filter_search = encode_dashboard_state(current_filters)
+    if current_filter_search == next_search:
+        return no_update
+    return next_search
+
+
+def _prepare_leaderboard_export_frame(
+    rows: list[dict[str, Any]] | None,
+    columns: list[dict[str, Any]] | None,
+) -> pd.DataFrame | None:
+    if not rows or not columns:
+        return None
+    frame = pd.DataFrame(rows)
+    if frame.empty:
+        return None
+    export_ids = [column["id"] for column in columns if column["id"] in frame.columns]
+    export_names = {column["id"]: column["name"] for column in columns}
+    return frame[export_ids].rename(columns=export_names)
+
+
 def _register_callbacks(app: Dash, datasets: DashboardDatasets, out_dir: Path) -> None:
     @app.callback(
         Output("entity-mode", "value", allow_duplicate=True),
@@ -196,10 +369,7 @@ def _register_callbacks(app: Dash, datasets: DashboardDatasets, out_dir: Path) -
         prevent_initial_call=True,
     )
     def _apply_quick_view(_clicks: list[int] | None):
-        triggered = ctx.triggered_id
-        if isinstance(triggered, dict) and triggered.get("type") == "quick-view-button":
-            return triggered.get("preset")
-        return no_update
+        return _quick_view_preset(ctx.triggered_id)
 
     @app.callback(
         Output("quick-view-bar", "children"),
@@ -233,33 +403,7 @@ def _register_callbacks(app: Dash, datasets: DashboardDatasets, out_dir: Path) -
         prevent_initial_call=True,
     )
     def _apply_preset_value(preset: str | None, current_search: str | None):
-        if not preset:
-            return (no_update,) * 19
-        current_state = decode_dashboard_state(current_search)
-        if current_state["filters"].preset == preset:
-            return (no_update,) * 19
-        filters = apply_dashboard_preset(preset)
-        return (
-            filters.entity_mode,
-            filters.ranking_metric,
-            filters.time_mode,
-            filters.burst_window,
-            filters.analysis_mode,
-            filters.analysis_window,
-            ["include"] if filters.include_ot else [],
-            ["competitive"] if filters.competitive_only else [],
-            filters.min_points,
-            filters.min_competitive_share,
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-        )
+        return _preset_filter_values(preset, current_search)
 
     @app.callback(
         Output("saved-bundle-select", "options"),
@@ -268,14 +412,7 @@ def _register_callbacks(app: Dash, datasets: DashboardDatasets, out_dir: Path) -
         State("saved-bundle-select", "value"),
     )
     def _sync_saved_bundle_options(saved_bundles: Any, current_value: str | None):
-        bundles = normalize_saved_bundles(saved_bundles)
-        options = [{"label": bundle.name, "value": bundle.id} for bundle in bundles]
-        valid_ids = {bundle.id for bundle in bundles}
-        if current_value in valid_ids:
-            value = current_value
-        else:
-            value = bundles[0].id if bundles else None
-        return options, value
+        return _saved_bundle_options(saved_bundles, current_value)
 
     @app.callback(
         Output("saved-bundles", "data"),
@@ -341,14 +478,8 @@ def _register_callbacks(app: Dash, datasets: DashboardDatasets, out_dir: Path) -
         preset: str | None,
         selected_row_ids: list[str] | None,
     ):
-        bundles = normalize_saved_bundles(saved_bundles)
-        triggered = ctx.triggered_id
-        if triggered == "save-bundle":
-            clean_name = str(bundle_name or "").strip()
-            if not selected_row_ids:
-                return no_update, "Select at least one comparison before saving a bundle.", no_update
-            if not clean_name:
-                return no_update, "Enter a bundle name before saving.", no_update
+        filters: DashboardFilters | None = None
+        if ctx.triggered_id == "save-bundle":
             filters = _build_filters_from_inputs(
                 entity_mode=entity_mode,
                 ranking_metric=ranking_metric,
@@ -373,19 +504,14 @@ def _register_callbacks(app: Dash, datasets: DashboardDatasets, out_dir: Path) -
                 era=era,
                 preset=preset,
             )
-            new_bundle = serialize_saved_bundle(clean_name, filters, list(selected_row_ids or []))
-            bundles = [bundle for bundle in bundles if bundle.name.lower() != clean_name.lower()]
-            bundles.insert(0, new_bundle)
-            bundles = bundles[:12]
-            return saved_bundles_payload(bundles), f'Saved bundle "{clean_name}".', ""
-        if triggered == "delete-bundle":
-            if not selected_bundle_id:
-                return no_update, "Choose a saved bundle to delete.", no_update
-            remaining = [bundle for bundle in bundles if bundle.id != selected_bundle_id]
-            if len(remaining) == len(bundles):
-                return no_update, "Saved bundle was not found.", no_update
-            return saved_bundles_payload(remaining), "Deleted saved bundle.", no_update
-        return no_update, no_update, no_update
+        return _saved_bundle_action(
+            triggered_id=ctx.triggered_id,
+            saved_bundles=saved_bundles,
+            bundle_name=bundle_name,
+            selected_bundle_id=selected_bundle_id,
+            filters=filters,
+            selected_row_ids=selected_row_ids,
+        )
 
     @app.callback(
         Output("dashboard-location", "search", allow_duplicate=True),
@@ -399,13 +525,7 @@ def _register_callbacks(app: Dash, datasets: DashboardDatasets, out_dir: Path) -
         selected_bundle_id: str | None,
         saved_bundles: Any,
     ):
-        if not load_clicks or not selected_bundle_id:
-            return no_update
-        bundles = normalize_saved_bundles(saved_bundles)
-        for bundle in bundles:
-            if bundle.id == selected_bundle_id:
-                return bundle.search
-        return no_update
+        return _saved_bundle_search(load_clicks, selected_bundle_id, saved_bundles)
 
     @app.callback(
         Output("ranking-metric", "options"),
@@ -429,31 +549,7 @@ def _register_callbacks(app: Dash, datasets: DashboardDatasets, out_dir: Path) -
         analysis_mode: str | None,
         line_color_mode: str | None,
     ):
-        options = get_ranking_options(entity_mode)
-        valid_values = {option["value"] for option in options}
-        value = current_metric if current_metric in valid_values else default_ranking_metric(entity_mode)
-        show_game_only = {} if entity_mode == "game" else {"display": "none"}
-        show_burst = {} if entity_mode == "burst" else {"display": "none"}
-        show_analysis_window = {} if analysis_mode in {"rolling_points", "rolling_rate"} else {"display": "none"}
-        show_margin = {"display": "flex"} if line_color_mode == "margin" else {"display": "none"}
-        if entity_mode == "burst":
-            secondary_chart_style = {"display": "none"}
-            secondary_note_style = {"display": "block"}
-        else:
-            secondary_chart_style = {}
-            secondary_note_style = {"display": "none"}
-        return (
-            options,
-            value,
-            show_burst,
-            show_analysis_window,
-            show_game_only,
-            show_game_only,
-            show_game_only,
-            show_margin,
-            secondary_chart_style,
-            secondary_note_style,
-        )
+        return _metric_visibility(entity_mode, current_metric, analysis_mode, line_color_mode)
 
     @app.callback(
         Output("leaderboard-table", "selected_row_ids", allow_duplicate=True),
@@ -469,16 +565,7 @@ def _register_callbacks(app: Dash, datasets: DashboardDatasets, out_dir: Path) -
         remove_clicks: list[int] | None,
         selected_row_ids: list[str] | None,
     ):
-        current_ids = list(selected_row_ids or [])
-        triggered = ctx.triggered_id
-        if triggered == "clear-comparisons":
-            return []
-        if triggered == "remove-last-comparison":
-            return current_ids[:-1]
-        if isinstance(triggered, dict) and triggered.get("type") == "comparison-remove":
-            target_id = triggered.get("selection_id")
-            return [selection_id for selection_id in current_ids if selection_id != target_id]
-        return no_update
+        return _selection_ids_from_tray(ctx.triggered_id, selected_row_ids)
 
     @app.callback(
         Output("leaderboard-table", "data"),
@@ -580,11 +667,7 @@ def _register_callbacks(app: Dash, datasets: DashboardDatasets, out_dir: Path) -
             era=era,
             preset=preset,
         )
-        effective_selected_ids = (
-            list(url_selected_ids or [])
-            if ctx.triggered_id == "url-selected-ids" and url_selected_ids
-            else selected_row_ids
-        )
+        effective_selected_ids = _effective_selected_ids(ctx.triggered_id, url_selected_ids, selected_row_ids)
         view = render_dashboard_view(
             datasets,
             out_dir,
@@ -639,7 +722,6 @@ def _register_callbacks(app: Dash, datasets: DashboardDatasets, out_dir: Path) -
         Input("season-type-filter", "value"),
         Input("era-filter", "value"),
         Input("preset-filter", "value"),
-        Input("leaderboard-table", "selected_row_ids"),
         State("dashboard-location", "search"),
     )
     def _update_url_state(
@@ -665,7 +747,6 @@ def _register_callbacks(app: Dash, datasets: DashboardDatasets, out_dir: Path) -
         season_type: str | None,
         era: str | None,
         preset: str | None,
-        selected_row_ids: list[str] | None,
         current_search: str | None,
     ):
         filters = _build_filters_from_inputs(
@@ -692,10 +773,7 @@ def _register_callbacks(app: Dash, datasets: DashboardDatasets, out_dir: Path) -
             era=era,
             preset=preset,
         )
-        next_search = encode_dashboard_state(filters, list(selected_row_ids or []))
-        if (current_search or "") == next_search:
-            return no_update
-        return next_search
+        return _updated_url_search(filters, current_search)
 
     @app.callback(
         Output("leaderboard-download", "data"),
@@ -709,13 +787,11 @@ def _register_callbacks(app: Dash, datasets: DashboardDatasets, out_dir: Path) -
         rows: list[dict[str, Any]] | None,
         columns: list[dict[str, Any]] | None,
     ):
-        if not n_clicks or not rows or not columns:
+        if not n_clicks:
             return no_update
-        frame = pd.DataFrame(rows)
-        if frame.empty:
+        export_frame = _prepare_leaderboard_export_frame(rows, columns)
+        if export_frame is None:
             return no_update
-        export_ids = [column["id"] for column in columns if column["id"] in frame.columns]
-        export_frame = frame[export_ids].rename(columns={column["id"]: column["name"] for column in columns})
         return dcc.send_data_frame(export_frame.to_csv, "nba_scoring_leaderboard.csv", index=False)
 
 
