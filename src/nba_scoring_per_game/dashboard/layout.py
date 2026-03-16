@@ -44,8 +44,8 @@ def build_dashboard_layout(datasets: DashboardDatasets) -> html.Div:
                 html.Div(
                     className="empty-state-card",
                     children=[
-                        build_brand_lockup(id="empty-brand-lockup", logo_id="empty-brand-logo"),
-                        html.H1("Backfill curated outputs to unlock the explorer.", className="app-title"),
+                        build_brand_lockup(id="empty-brand-lockup"),
+                        html.H1("Backfill curated outputs to unlock Heat Check.", className="app-title"),
                         html.P(
                             datasets.message or "No local parquet data is available yet.",
                             className="empty-state-text",
@@ -94,11 +94,6 @@ def build_dashboard_layout(datasets: DashboardDatasets) -> html.Div:
     initial_details = build_enriched_detail_cards(initial_selected_records, default_filters.entity_mode, initial_timelines)
     initial_chart_summary = build_chart_summary_strip(initial_selected_records, default_filters.entity_mode)
     initial_chart_key = build_chart_visual_key(default_filters)
-    initial_status = (
-        "Previewing the top-ranked performance. Select rows in the leaderboard to compare up to 4 lines."
-        if initial_records
-        else "No performances matched the current filters."
-    )
     filter_options = build_filter_options(datasets)
 
     return html.Div(
@@ -114,188 +109,222 @@ def build_dashboard_layout(datasets: DashboardDatasets) -> html.Div:
                     html.Div(
                         className="hero-copy",
                         children=[
-                            build_brand_lockup(id="hero-brand-lockup", logo_id="hero-nav-logo"),
-                            html.H1("Historic scoring trajectories, bursts, quarters, and context.", className="app-title"),
-                            html.P(
-                                "Compare volume, pace, burst intensity, shot mix, and competitiveness across the best scoring performances ever.",
-                                className="app-subtitle",
+                            html.H1("🏀 🔥 Heat Check", className="app-title"),
+                            build_brand_lockup(
+                                id="hero-brand-lockup",
+                                title=None,
+                                kicker="The NBA's Greatest Single Game Scoring Performances",
+                                class_name="hero-subhead",
                             ),
                         ]
                     ),
                     html.Div(
                         className="hero-metrics",
                         children=[
+                            _metric_chip("Seasons", _hero_season_range_value(datasets), class_name="metric-chip--season"),
                             _metric_chip("Games", len(datasets.game_summaries)),
-                            _metric_chip("Quarters", len(datasets.quarter_summaries)),
                             _metric_chip("Halves", len(datasets.half_summaries)),
+                            _metric_chip("Quarters", len(datasets.quarter_summaries)),
                             _metric_chip("Bursts", len(datasets.burst_summaries)),
                         ],
                     ),
                 ],
             ),
             build_app_guide(),
-            html.Div(
-                className="filter-bar",
+            html.Details(
+                id="filter-panel",
+                className="filter-panel",
                 children=[
-                    _dropdown("Preset", "preset-filter", get_preset_options(), None, clearable=True),
-                    _dropdown(
-                        "Entity Mode",
-                        "entity-mode",
-                        [
-                            {"label": "Full Game", "value": "game"},
-                            {"label": "Quarter", "value": "quarter"},
-                            {"label": "Half", "value": "half"},
-                            {"label": "Burst", "value": "burst"},
+                    html.Summary(
+                        className="filter-summary",
+                        children=[
+                            html.Span("Filters and Compare Settings", className="filter-summary-title"),
+                            html.Span(
+                                "Open when you need to narrow by player, era, efficiency, or competitiveness.",
+                                className="filter-summary-note",
+                            ),
                         ],
-                        default_filters.entity_mode,
-                        clearable=False,
-                    ),
-                    _dropdown(
-                        "Ranking Metric",
-                        "ranking-metric",
-                        get_ranking_options(default_filters.entity_mode),
-                        default_filters.ranking_metric,
-                        clearable=False,
-                    ),
-                    _dropdown(
-                        "Time Mode",
-                        "time-mode",
-                        [
-                            {"label": "Raw Time", "value": "raw"},
-                            {"label": "Normalized", "value": "normalized"},
-                        ],
-                        default_filters.time_mode,
-                        clearable=False,
-                    ),
-                    _dropdown(
-                        "Analysis Mode",
-                        "analysis-mode",
-                        [
-                            {"label": "None", "value": "none"},
-                            {"label": "Rolling Points", "value": "rolling_points"},
-                            {"label": "Rolling Rate", "value": "rolling_rate"},
-                            {"label": "Projected Pace", "value": "projected_pace"},
-                        ],
-                        default_filters.analysis_mode,
-                        clearable=False,
                     ),
                     html.Div(
-                        id="analysis-window-wrap",
-                        className="filter-control",
-                        style={"display": "none"},
+                        className="filter-bar",
                         children=[
-                            html.Label("Analysis Window", className="filter-label"),
-                            dcc.Dropdown(
-                                id="analysis-window",
-                                options=[
-                                    {"label": "60 sec", "value": 60},
-                                    {"label": "2 min", "value": 120},
-                                    {"label": "3 min", "value": 180},
-                                    {"label": "5 min", "value": 300},
-                                    {"label": "10 min", "value": 600},
+                            _dropdown("Preset", "preset-filter", get_preset_options(), None, clearable=True),
+                            _dropdown(
+                                "Entity Mode",
+                                "entity-mode",
+                                [
+                                    {"label": "Full Game", "value": "game"},
+                                    {"label": "Quarter", "value": "quarter"},
+                                    {"label": "Half", "value": "half"},
+                                    {"label": "Burst", "value": "burst"},
                                 ],
-                                value=default_filters.analysis_window,
+                                default_filters.entity_mode,
                                 clearable=False,
                             ),
-                        ],
-                    ),
-                    html.Div(
-                        id="burst-window-wrap",
-                        className="filter-control",
-                        children=[
-                            html.Label("Burst Window", className="filter-label"),
-                            dcc.Dropdown(
-                                id="burst-window",
-                                options=[
-                                    {"label": "60 sec", "value": 60},
-                                    {"label": "2 min", "value": 120},
-                                    {"label": "3 min", "value": 180},
-                                    {"label": "5 min", "value": 300},
-                                    {"label": "10 min", "value": 600},
-                                ],
-                                value=default_filters.burst_window,
+                            _dropdown(
+                                "Ranking Metric",
+                                "ranking-metric",
+                                get_ranking_options(default_filters.entity_mode),
+                                default_filters.ranking_metric,
                                 clearable=False,
                             ),
-                        ],
-                        style={"display": "none"},
-                    ),
-                    _dropdown(
-                        "Line Color",
-                        "line-color-mode",
-                        [
-                            {"label": "Compare Colors", "value": "player"},
-                            {"label": "Margin Context", "value": "margin"},
-                        ],
-                        default_filters.line_color_mode,
-                        clearable=False,
-                    ),
-                    _dropdown("Season", "season-filter", filter_options["season"], None, clearable=True),
-                    _dropdown("Season Type", "season-type-filter", filter_options["season_type"], None, clearable=True),
-                    _dropdown("Era", "era-filter", filter_options["era"], None, clearable=True),
-                    _dropdown("Player", "player-filter", filter_options["player"], None, clearable=True),
-                    _dropdown("Team", "team-filter", filter_options["team"], None, clearable=True),
-                    _dropdown("Opponent", "opponent-filter", filter_options["opponent"], None, clearable=True),
-                    _number_input("Min Points", "min-points", default_filters.min_points, 0),
-                    _number_input("Min Competitive Share", "min-competitive-share", "", 0, 0.05),
-                    html.Div(
-                        id="min-ts-pct-wrap",
-                        className="filter-control",
-                        children=[
-                            html.Label("Min TS%", className="filter-label"),
-                            dcc.Input(id="min-ts-pct", type="number", value="", min=0, max=1, step=0.01, className="numeric-input"),
-                        ],
-                    ),
-                    html.Div(
-                        id="min-efg-pct-wrap",
-                        className="filter-control",
-                        children=[
-                            html.Label("Min eFG%", className="filter-label"),
-                            dcc.Input(id="min-efg-pct", type="number", value="", min=0, max=1, step=0.01, className="numeric-input"),
-                        ],
-                    ),
-                    html.Div(
-                        id="min-offensive-share-wrap",
-                        className="filter-control",
-                        children=[
-                            html.Label("Min Offensive Share", className="filter-label"),
-                            dcc.Input(
-                                id="min-offensive-share",
-                                type="number",
-                                value="",
-                                min=0,
-                                max=1,
-                                step=0.01,
-                                className="numeric-input",
+                            _dropdown(
+                                "Time Mode",
+                                "time-mode",
+                                [
+                                    {"label": "Raw Time", "value": "raw"},
+                                    {"label": "Normalized", "value": "normalized"},
+                                ],
+                                default_filters.time_mode,
+                                clearable=False,
                             ),
-                        ],
-                    ),
-                    html.Div(
-                        className="filter-control compact-checks",
-                        children=[
-                            html.Label("Display", className="filter-label"),
-                            dcc.Checklist(
-                                id="shot-markers",
-                                options=[{"label": "Shot Markers", "value": "markers"}],
-                                value=["markers"],
-                                className="compact-checklist",
+                            _dropdown(
+                                "Analysis Mode",
+                                "analysis-mode",
+                                [
+                                    {"label": "None", "value": "none"},
+                                    {"label": "Rolling Points", "value": "rolling_points"},
+                                    {"label": "Rolling Rate", "value": "rolling_rate"},
+                                    {"label": "Projected Pace", "value": "projected_pace"},
+                                ],
+                                default_filters.analysis_mode,
+                                clearable=False,
                             ),
-                            dcc.Checklist(
-                                id="include-ot",
-                                options=[{"label": "Include OT", "value": "include"}],
-                                value=["include"],
-                                className="compact-checklist",
+                            html.Div(
+                                id="analysis-window-wrap",
+                                className="filter-control",
+                                style={"display": "none"},
+                                children=[
+                                    html.Label("Analysis Window", className="filter-label"),
+                                    dcc.Dropdown(
+                                        id="analysis-window",
+                                        options=[
+                                            {"label": "60 sec", "value": 60},
+                                            {"label": "2 min", "value": 120},
+                                            {"label": "3 min", "value": 180},
+                                            {"label": "5 min", "value": 300},
+                                            {"label": "10 min", "value": 600},
+                                        ],
+                                        value=default_filters.analysis_window,
+                                        clearable=False,
+                                    ),
+                                ],
                             ),
-                            dcc.Checklist(
-                                id="competitive-only",
-                                options=[{"label": "Competitive Only", "value": "competitive"}],
-                                value=[],
-                                className="compact-checklist",
+                            html.Div(
+                                id="burst-window-wrap",
+                                className="filter-control",
+                                children=[
+                                    html.Label("Burst Window", className="filter-label"),
+                                    dcc.Dropdown(
+                                        id="burst-window",
+                                        options=[
+                                            {"label": "60 sec", "value": 60},
+                                            {"label": "2 min", "value": 120},
+                                            {"label": "3 min", "value": 180},
+                                            {"label": "5 min", "value": 300},
+                                            {"label": "10 min", "value": 600},
+                                        ],
+                                        value=default_filters.burst_window,
+                                        clearable=False,
+                                    ),
+                                ],
+                                style={"display": "none"},
+                            ),
+                            _dropdown(
+                                "Line Color",
+                                "line-color-mode",
+                                [
+                                    {"label": "Compare Colors", "value": "player"},
+                                    {"label": "Margin Context", "value": "margin"},
+                                ],
+                                default_filters.line_color_mode,
+                                clearable=False,
+                            ),
+                            _dropdown("Season", "season-filter", filter_options["season"], None, clearable=True),
+                            _dropdown("Season Type", "season-type-filter", filter_options["season_type"], None, clearable=True),
+                            _dropdown("Era", "era-filter", filter_options["era"], None, clearable=True),
+                            _dropdown("Player", "player-filter", filter_options["player"], None, clearable=True),
+                            _dropdown("Team", "team-filter", filter_options["team"], None, clearable=True),
+                            _dropdown("Opponent", "opponent-filter", filter_options["opponent"], None, clearable=True),
+                            _number_input("Min Points", "min-points", default_filters.min_points, 0),
+                            _number_input("Min Competitive Share", "min-competitive-share", "", 0, 0.05),
+                            html.Div(
+                                id="min-ts-pct-wrap",
+                                className="filter-control",
+                                children=[
+                                    html.Label("Min TS%", className="filter-label"),
+                                    dcc.Input(
+                                        id="min-ts-pct",
+                                        type="number",
+                                        value="",
+                                        min=0,
+                                        max=1,
+                                        step=0.01,
+                                        className="numeric-input",
+                                    ),
+                                ],
+                            ),
+                            html.Div(
+                                id="min-efg-pct-wrap",
+                                className="filter-control",
+                                children=[
+                                    html.Label("Min eFG%", className="filter-label"),
+                                    dcc.Input(
+                                        id="min-efg-pct",
+                                        type="number",
+                                        value="",
+                                        min=0,
+                                        max=1,
+                                        step=0.01,
+                                        className="numeric-input",
+                                    ),
+                                ],
+                            ),
+                            html.Div(
+                                id="min-offensive-share-wrap",
+                                className="filter-control",
+                                children=[
+                                    html.Label("Min Offensive Share", className="filter-label"),
+                                    dcc.Input(
+                                        id="min-offensive-share",
+                                        type="number",
+                                        value="",
+                                        min=0,
+                                        max=1,
+                                        step=0.01,
+                                        className="numeric-input",
+                                    ),
+                                ],
+                            ),
+                            html.Div(
+                                className="filter-control compact-checks",
+                                children=[
+                                    html.Label("Display", className="filter-label"),
+                                    dcc.Checklist(
+                                        id="shot-markers",
+                                        options=[{"label": "Shot Markers", "value": "markers"}],
+                                        value=["markers"],
+                                        className="compact-checklist",
+                                    ),
+                                    dcc.Checklist(
+                                        id="include-ot",
+                                        options=[{"label": "Include OT", "value": "include"}],
+                                        value=["include"],
+                                        className="compact-checklist",
+                                    ),
+                                    dcc.Checklist(
+                                        id="competitive-only",
+                                        options=[{"label": "Competitive Only", "value": "competitive"}],
+                                        value=[],
+                                        className="compact-checklist",
+                                    ),
+                                ],
                             ),
                         ],
                     ),
                 ],
             ),
-            html.Div(initial_status, id="status-banner", className="status-banner"),
+            html.Div(id="status-banner", className="status-banner"),
             html.Div(
                 className="content-grid",
                 children=[
@@ -506,6 +535,62 @@ def build_app_guide() -> html.Details:
             ),
         ],
     )
+
+
+def _hero_season_range_value(datasets: DashboardDatasets) -> str:
+    official_frame = datasets.game_summaries
+    if not official_frame.empty and "is_manual_approximation" in official_frame.columns:
+        official_frame = official_frame.loc[~official_frame["is_manual_approximation"].fillna(False)]
+
+    start, end = _season_span(official_frame)
+    if start is None or end is None:
+        return "N/A"
+    return f"{_season_start_year(start)}-{_season_end_year(end)}"
+
+
+def _season_span(frame: pd.DataFrame) -> tuple[str | None, str | None]:
+    if frame.empty or "season" not in frame.columns:
+        return None, None
+
+    seasons = sorted(
+        {
+            str(value).strip()
+            for value in frame["season"].dropna().tolist()
+            if str(value).strip()
+        },
+        key=_season_sort_key,
+    )
+    if not seasons:
+        return None, None
+    return seasons[0], seasons[-1]
+
+
+def _season_sort_key(season: str) -> int:
+    prefix = str(season).split("-", 1)[0]
+    return int(prefix)
+
+
+def _season_start_year(season: str) -> int:
+    return _season_sort_key(season)
+
+
+def _season_end_year(season: str) -> int:
+    normalized = str(season).strip()
+    if "-" not in normalized:
+        return _season_sort_key(normalized)
+
+    start_text, end_text = normalized.split("-", 1)
+    start_year = int(start_text)
+    end_text = end_text.strip()
+    if len(end_text) == 4 and end_text.isdigit():
+        return int(end_text)
+
+    end_suffix = int(end_text)
+    century = (start_year // 100) * 100
+    end_year = century + end_suffix
+    if end_year < start_year:
+        end_year += 100
+    return end_year
 
 
 def build_enriched_detail_cards(
@@ -869,11 +954,15 @@ def _number_input(label: str, component_id: str, value: Any, minimum: int | floa
     )
 
 
-def _metric_chip(label: str, value: Any) -> html.Div:
+def _metric_chip(label: str, value: Any, *, class_name: str | None = None) -> html.Div:
+    if isinstance(value, int):
+        display_value = f"{value:,}"
+    else:
+        display_value = str(value)
     return html.Div(
-        className="metric-chip",
+        className=" ".join(part for part in ("metric-chip", class_name) if part),
         children=[
-            html.Div(str(value), className="metric-chip-value"),
+            html.Div(display_value, className="metric-chip-value"),
             html.Div(label, className="metric-chip-label"),
         ],
     )

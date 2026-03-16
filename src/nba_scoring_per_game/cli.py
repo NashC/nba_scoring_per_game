@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pandas as pd
 
-from .dashboard import create_dashboard_app
+from .dashboard import create_dashboard_app, should_eager_load_dashboard
 from .pipeline import build_dataset, get_dataset_metadata, load_dataset, process_game, query_player_games
 from .source import fetch_game_manifest, fetch_playbyplay
 from .transforms import inspect_playbyplay
@@ -86,13 +86,14 @@ def main() -> None:
     if args.command == "serve-app":
         debug = _parse_bool(args.debug)
         hot_reload = _parse_bool(args.hot_reload)
-        app = create_dashboard_app(args.out_dir)
+        use_reloader = hot_reload or debug
+        app = create_dashboard_app(args.out_dir, eager_load=should_eager_load_dashboard(use_reloader))
         app.run(
             host=args.host,
             port=args.port,
             debug=debug,
             dev_tools_hot_reload=hot_reload,
-            use_reloader=hot_reload or debug,
+            use_reloader=use_reloader,
         )
         return
 

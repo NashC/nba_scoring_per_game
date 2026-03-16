@@ -1,4 +1,4 @@
-from .app import create_dashboard_app, render_dashboard_view
+from .app import create_dashboard_app, render_dashboard_view, should_eager_load_dashboard
 from .branding import LiveLogo3D, build_brand_lockup
 from .charts import build_rolling_analysis_series, build_secondary_analysis_figure
 from .loader import DashboardDatasets, load_dashboard_datasets, load_selected_timelines
@@ -31,4 +31,5 @@ __all__ = [
     "normalize_saved_bundles",
     "render_dashboard_view",
     "serialize_saved_bundle",
+    "should_eager_load_dashboard",
 ]

@@ -20,6 +20,7 @@ FILTER_CACHE_SIZE = 128
 DEFAULT_ENTITY_MODE = "game"
 DEFAULT_ANALYSIS_MODE = "none"
 DEFAULT_ANALYSIS_WINDOW = 180
+LEADERBOARD_HIGHLIGHT_BACKGROUND = "#f4ebde"
 VALID_ENTITY_MODES = {"game", "quarter", "half", "burst"}
 VALID_TIME_MODES = {"raw", "normalized"}
 VALID_ANALYSIS_MODES = {"none", "rolling_points", "rolling_rate", "projected_pace"}
@@ -723,7 +724,7 @@ def _leaderboard_style_metadata(
         style_data_conditional.append(
             {
                 "if": {"column_id": highlight_display_id},
-                "backgroundColor": "rgba(216, 197, 169, 0.28)",
+                "backgroundColor": LEADERBOARD_HIGHLIGHT_BACKGROUND,
             }
         )
     return {

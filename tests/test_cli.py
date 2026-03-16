@@ -81,7 +81,7 @@ class CliTests(unittest.TestCase):
                 "9000",
             )
 
-        mock_create.assert_called_once_with("custom-data")
+        mock_create.assert_called_once_with("custom-data", eager_load=False)
         app.run.assert_called_once_with(
             host="0.0.0.0",
             port=9000,
@@ -105,7 +105,7 @@ class CliTests(unittest.TestCase):
                 "yes",
             )
 
-        mock_create.assert_called_once_with("custom-data")
+        mock_create.assert_called_once_with("custom-data", eager_load=False)
         app.run.assert_called_once_with(
             host="0.0.0.0",
             port=9000,
@@ -114,11 +114,29 @@ class CliTests(unittest.TestCase):
             use_reloader=True,
         )
 
+    def test_serve_app_eager_loads_in_reloader_child_process(self) -> None:
+        app = Mock()
+        with patch.dict("os.environ", {"WERKZEUG_RUN_MAIN": "true"}), patch(
+            "nba_scoring_per_game.cli.create_dashboard_app",
+            return_value=app,
+        ) as mock_create:
+            self._run_cli("serve-app")
+
+        mock_create.assert_called_once_with("data", eager_load=True)
+        app.run.assert_called_once_with(
+            host="127.0.0.1",
+            port=8050,
+            debug=False,
+            dev_tools_hot_reload=True,
+            use_reloader=True,
+        )
+
     def test_serve_app_can_disable_hot_reload(self) -> None:
         app = Mock()
-        with patch("nba_scoring_per_game.cli.create_dashboard_app", return_value=app):
+        with patch("nba_scoring_per_game.cli.create_dashboard_app", return_value=app) as mock_create:
             self._run_cli("serve-app", "--hot-reload", "no")
 
+        mock_create.assert_called_once_with("data", eager_load=True)
         app.run.assert_called_once_with(
             host="127.0.0.1",
             port=8050,

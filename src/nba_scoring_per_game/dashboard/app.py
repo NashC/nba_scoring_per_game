@@ -1,10 +1,11 @@
 from __future__ import annotations
 
+import os
 from pathlib import Path
 from typing import Any
 
 import pandas as pd
-from dash import ALL, Dash, Input, Output, State, ctx, dcc, no_update
+from dash import ALL, Dash, Input, Output, State, ctx, dcc, html, no_update
 
 from .charts import build_empty_figure, build_secondary_analysis_figure, build_trajectory_figure
 from .layout import (
@@ -38,22 +39,31 @@ from .state import (
 _PRESET_FILTER_OUTPUT_COUNT = 19
 
 
-def create_dashboard_app(out_dir: str | Path = "data") -> Dash:
+def create_dashboard_app(out_dir: str | Path = "data", *, eager_load: bool = True) -> Dash:
     """Create the Dash app for exploring scoring trajectories and scoring context."""
-    out_path = Path(out_dir)
-    datasets = load_dashboard_datasets(out_path)
     assets_dir = Path(__file__).with_name("assets")
     app = Dash(
         __name__,
-        title="NBA Scoring Explorer",
+        title="🏀 🔥 Heat Check",
         assets_folder=str(assets_dir),
         suppress_callback_exceptions=True,
         prevent_initial_callbacks="initial_duplicate",
     )
+    if not eager_load:
+        app.layout = html.Div()
+        return app
+
+    out_path = Path(out_dir)
+    datasets = load_dashboard_datasets(out_path)
     app.layout = build_dashboard_layout(datasets)
     if datasets.available:
         _register_callbacks(app, datasets, out_path)
     return app
+
+
+def should_eager_load_dashboard(use_reloader: bool) -> bool:
+    """Skip the expensive dataset bootstrap in the Werkzeug reloader parent process."""
+    return (not use_reloader) or os.environ.get("WERKZEUG_RUN_MAIN") == "true"
 
 
 def render_dashboard_view(
@@ -100,12 +110,6 @@ def render_dashboard_view(
     all_records = working.to_dict(orient="records")
     selected_records = select_records(all_records, selected_row_ids)
     selected_ids = [record["selection_id"] for record in selected_records]
-    if len(selected_row_ids or []) > len(selected_records):
-        status = f"Showing the first {len(selected_records)} selected comparisons."
-    elif not selected_row_ids:
-        status = "Previewing the top-ranked performance. Select rows in the leaderboard to compare up to 4 lines."
-    else:
-        status = f"Comparing {len(selected_records)} performance(s)."
 
     timelines = load_selected_timelines(out_dir, selected_records)
     primary_figure = build_trajectory_figure(
@@ -125,7 +129,7 @@ def render_dashboard_view(
         "primary_figure": primary_figure,
         "secondary_figure": secondary_figure,
         "details": details,
-        "status": status,
+        "status": None,
         "comparison_tray": build_comparison_tray(selected_records),
         "chart_summary": build_chart_summary_strip(selected_records, filters.entity_mode),
         "chart_visual_key": build_chart_visual_key(filters),

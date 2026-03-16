@@ -199,10 +199,22 @@ class DashboardTests(unittest.TestCase):
         with TemporaryDirectory() as tmpdir:
             build_test_outputs(tmpdir)
             app = create_dashboard_app(tmpdir)
+            self.assertEqual(app.title, "🏀 🔥 Heat Check")
             self.assertIsNotNone(find_component_by_id(app.layout, "hero-brand-lockup"))
+            self.assertIsNone(find_component_by_id(app.layout, "hero-nav-logo"))
             self.assertIsNone(find_component_by_id(app.layout, "hero-live-logo"))
             self.assertIsNone(find_component_by_id(app.layout, "hero-brand-stage"))
             self.assertIsNotNone(find_component_by_id(app.layout, "app-guide"))
+            layout_text = flatten_component_text(app.layout)
+            self.assertIn("🏀 🔥 Heat Check", layout_text)
+            self.assertIn("The NBA's Greatest Single Game Scoring Performances", layout_text)
+            self.assertIn("Seasons", layout_text)
+            self.assertIn("2023-2024", layout_text)
+            self.assertNotIn("Historic scoring trajectories, bursts, quarters, and context.", layout_text)
+            filter_panel = find_component_by_id(app.layout, "filter-panel")
+            self.assertIsNotNone(filter_panel)
+            self.assertFalse(bool(getattr(filter_panel, "open", False)))
+            self.assertIsNotNone(find_component_by_id(app.layout, "status-banner"))
             self.assertIsNotNone(find_component_by_id(app.layout, "leaderboard-table"))
             self.assertIsNotNone(find_component_by_id(app.layout, "quick-view-bar"))
             self.assertIsNotNone(find_component_by_id(app.layout, "comparison-chart"))
@@ -229,6 +241,7 @@ class DashboardTests(unittest.TestCase):
             app = create_dashboard_app(tmpdir)
             self.assertEqual(app.layout.className, "app-shell")
             self.assertIsNotNone(find_component_by_id(app.layout, "empty-brand-lockup"))
+            self.assertIsNone(find_component_by_id(app.layout, "empty-brand-logo"))
 
     def test_create_dashboard_app_handles_schema_mismatch_with_empty_state(self) -> None:
         with TemporaryDirectory() as tmpdir:
@@ -376,6 +389,13 @@ class DashboardTests(unittest.TestCase):
             self.assertEqual(styles["highlight_column_id"], "offensive_share_display")
             self.assertTrue(any(rule["if"]["column_id"] == "offensive_share_display" for rule in styles["style_header_conditional"]))
             self.assertTrue(
+                any(
+                    rule["if"].get("column_id") == "offensive_share_display"
+                    and rule.get("backgroundColor") == "#f4ebde"
+                    for rule in styles["style_data_conditional"]
+                )
+            )
+            self.assertTrue(
                 "/assets/team_logos/" in records[0]["team_logo_display"]
                 or records[0]["team_logo_display"] == "HOM"
             )
@@ -468,6 +488,13 @@ class DashboardTests(unittest.TestCase):
             )
             self.assertIn("Current constraints", view["status"])
             self.assertIn("min points is 99", view["status"])
+
+    def test_render_dashboard_view_omits_status_for_normal_results(self) -> None:
+        with TemporaryDirectory() as tmpdir:
+            build_test_outputs(tmpdir)
+            datasets = load_dashboard_datasets(tmpdir)
+            view = render_dashboard_view(datasets, tmpdir, DashboardFilters(entity_mode="game"), None)
+            self.assertIsNone(view["status"])
 
     def test_render_dashboard_view_includes_styles_for_active_metric(self) -> None:
         with TemporaryDirectory() as tmpdir:
