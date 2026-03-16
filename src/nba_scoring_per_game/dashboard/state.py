@@ -46,7 +46,6 @@ RANKING_OPTIONS = {
         ("ts_pct", "TS%"),
         ("efg_pct", "eFG%"),
         ("offensive_share", "Offensive Share"),
-        ("peak_projected_48", "Peak Projected 48"),
         ("competitive_points", "Competitive Points"),
         ("competitive_scoring_share", "Competitive Share"),
         ("trailing_points", "Trailing Points"),
@@ -167,7 +166,6 @@ LEADERBOARD_BASE_SPECS = {
         ("ts_pct", "TS%", "pct1"),
         ("efg_pct", "eFG%", "pct1"),
         ("offensive_share", "Off Share", "pct1"),
-        ("peak_projected_48", "Peak Proj 48", "decimal"),
         ("competitive_scoring_share", "Comp Share", "pct1"),
     ],
     "quarter": [
@@ -222,7 +220,6 @@ ESTIMATED_LEADERBOARD_COLUMNS = {
         "competitive_scoring_share",
         "trailing_points",
         "trailing_scoring_rate",
-        "peak_projected_48",
         "best_60_sec_points",
         "best_2_min_points",
         "best_3_min_points",
@@ -305,12 +302,7 @@ def normalize_filters(**kwargs: Any) -> DashboardFilters:
     entity_mode = str(kwargs.get("entity_mode") or DEFAULT_ENTITY_MODE).strip().lower()
     if entity_mode not in VALID_ENTITY_MODES:
         entity_mode = DEFAULT_ENTITY_MODE
-    ranking_metric = str(
-        kwargs.get("ranking_metric") or DEFAULT_RANKING_METRIC.get(entity_mode, DEFAULT_RANKING_METRIC["game"])
-    ).strip()
-    valid_metrics = {value for value, _ in RANKING_OPTIONS.get(entity_mode, RANKING_OPTIONS[DEFAULT_ENTITY_MODE])}
-    if ranking_metric not in valid_metrics:
-        ranking_metric = DEFAULT_RANKING_METRIC.get(entity_mode, DEFAULT_RANKING_METRIC[DEFAULT_ENTITY_MODE])
+    ranking_metric = _normalize_ranking_metric_for_mode(entity_mode, kwargs.get("ranking_metric"))
     analysis_mode = str(kwargs.get("analysis_mode") or DEFAULT_ANALYSIS_MODE).strip().lower()
     if analysis_mode not in VALID_ANALYSIS_MODES:
         analysis_mode = DEFAULT_ANALYSIS_MODE
@@ -382,6 +374,21 @@ def default_ranking_metric(entity_mode: str) -> str:
     return DEFAULT_RANKING_METRIC[str(entity_mode).strip().lower()]
 
 
+def _valid_ranking_metrics(entity_mode: str) -> set[str]:
+    normalized = str(entity_mode).strip().lower()
+    options = RANKING_OPTIONS.get(normalized, RANKING_OPTIONS[DEFAULT_ENTITY_MODE])
+    return {value for value, _ in options}
+
+
+def _normalize_ranking_metric_for_mode(entity_mode: str, ranking_metric: Any) -> str:
+    normalized = str(entity_mode).strip().lower()
+    default_metric = DEFAULT_RANKING_METRIC.get(normalized, DEFAULT_RANKING_METRIC[DEFAULT_ENTITY_MODE])
+    metric = str(ranking_metric or default_metric).strip()
+    if metric in _valid_ranking_metrics(normalized):
+        return metric
+    return default_metric
+
+
 def serialize_saved_bundle(name: str, filters: DashboardFilters, selected_ids: list[str] | None) -> SavedBundle:
     return SavedBundle(
         id=f"bundle-{uuid4().hex[:12]}",
@@ -419,6 +426,7 @@ def filter_summary_frame(datasets: DashboardDatasets, filters: DashboardFilters)
     frame = get_entity_frame(datasets, filters.entity_mode).copy()
     if frame.empty:
         return frame
+    ranking_metric = _normalize_ranking_metric_for_mode(filters.entity_mode, filters.ranking_metric)
 
     if filters.season:
         frame = frame.loc[frame["season"].astype(str).eq(filters.season)]
@@ -450,8 +458,8 @@ def filter_summary_frame(datasets: DashboardDatasets, filters: DashboardFilters)
         min_competitive_share=filters.min_competitive_share,
         include_ot=filters.include_ot,
         burst_window=filters.burst_window,
-        ranking_metric=filters.ranking_metric,
-        sort_by=filters.ranking_metric,
+        ranking_metric=ranking_metric,
+        sort_by=ranking_metric,
         ascending=False,
     ).reset_index(drop=True)
     _remember_filter_cache(cache_key, filtered)
@@ -466,6 +474,7 @@ def build_leaderboard_table(
     page_current: int = 0,
     page_size: int | None = None,
 ) -> tuple[list[dict[str, Any]], list[dict[str, str]], dict[str, Any]]:
+    ranking_metric = _normalize_ranking_metric_for_mode(filters.entity_mode, filters.ranking_metric)
     working, column_specs = _prepare_leaderboard_dataframe(summary_df, filters, sort_by)
     if working.empty:
         return [], _leaderboard_columns(column_specs), _leaderboard_style_metadata(
@@ -483,7 +492,7 @@ def build_leaderboard_table(
     paged = _slice_leaderboard_page(working, page_current=page_current, page_size=page_size)
 
     records = paged.to_dict(orient="records")
-    highlight_column = _highlight_display_id(filters.entity_mode, filters.ranking_metric)
+    highlight_column = _highlight_display_id(filters.entity_mode, ranking_metric)
     style_meta = _leaderboard_style_metadata(
         column_specs,
         highlight_column,
@@ -754,7 +763,8 @@ def _prepare_leaderboard_dataframe(
     filters: DashboardFilters,
     sort_by: list[dict[str, str]] | None,
 ) -> tuple[pd.DataFrame, list[tuple[str, str, str]]]:
-    column_specs = _leaderboard_column_specs(filters.entity_mode, filters.ranking_metric)
+    ranking_metric = _normalize_ranking_metric_for_mode(filters.entity_mode, filters.ranking_metric)
+    column_specs = _leaderboard_column_specs(filters.entity_mode, ranking_metric)
     if summary_df.empty:
         return pd.DataFrame(), column_specs
     working = summary_df.copy()
@@ -1161,10 +1171,11 @@ def _options_from_series(series: pd.Series) -> list[dict[str, str]]:
 
 
 def _filter_cache_key(datasets: DashboardDatasets, filters: DashboardFilters) -> tuple[Any, ...]:
+    ranking_metric = _normalize_ranking_metric_for_mode(filters.entity_mode, filters.ranking_metric)
     return (
         getattr(datasets, "summary_signature", ()),
         filters.entity_mode,
-        filters.ranking_metric,
+        ranking_metric,
         filters.time_mode,
         filters.burst_window,
         filters.analysis_mode,

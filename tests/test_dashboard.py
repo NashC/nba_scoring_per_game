@@ -423,6 +423,7 @@ class DashboardTests(unittest.TestCase):
             column_ids = [column["id"] for column in columns]
             self.assertIn("ts_pct_display", column_ids)
             self.assertIn("offensive_share_display", column_ids)
+            self.assertNotIn("peak_projected_48_display", column_ids)
             self.assertIn("team_logo_display", column_ids)
             self.assertIn("opponent_team_logo_display", column_ids)
             self.assertEqual(styles["highlight_column_id"], "offensive_share_display")
@@ -446,6 +447,18 @@ class DashboardTests(unittest.TestCase):
                 or records[0]["team_logo_display"] == "HOM"
             )
             self.assertEqual(records[0]["game_date_display"], "2024")
+    def test_build_leaderboard_table_falls_back_when_removed_game_metric_is_requested(self) -> None:
+        with TemporaryDirectory() as tmpdir:
+            build_test_outputs(tmpdir)
+            datasets = load_dashboard_datasets(tmpdir)
+            filters = DashboardFilters(entity_mode="game", ranking_metric="peak_projected_48")
+            frame = filter_summary_frame(datasets, filters)
+            _, columns, styles = build_leaderboard_table(frame, filters, limit=5)
+
+            column_ids = [column["id"] for column in columns]
+            self.assertNotIn("peak_projected_48_display", column_ids)
+            self.assertEqual(styles["highlight_column_id"], "final_points_display")
+
             self.assertEqual(styles["tooltip_data"][0]["game_date_display"]["value"], "Exact date: 2024-01-01")
             self.assertEqual(styles["tooltip_header"]["ts_pct_display"]["type"], "markdown")
             self.assertIn("True Shooting Percentage", styles["tooltip_header"]["ts_pct_display"]["value"])
@@ -492,14 +505,20 @@ class DashboardTests(unittest.TestCase):
             build_test_outputs(tmpdir)
             write_manual_approximation_note(tmpdir)
             datasets = load_dashboard_datasets(tmpdir)
-            filters = DashboardFilters(entity_mode="game", ranking_metric="peak_projected_48")
+            filters = DashboardFilters(entity_mode="game", ranking_metric="competitive_scoring_share")
             frame = filter_summary_frame(datasets, filters)
             records, _, styles = build_leaderboard_table(frame, filters, limit=5)
 
-            self.assertTrue(records[0]["peak_projected_48_display"].endswith("*"))
-            self.assertTrue(records[0]["competitive_scoring_share_display"].endswith("*"))
-            self.assertIn("legacy manual approximation", styles["tooltip_data"][0]["peak_projected_48_display"]["value"].lower())
-            self.assertIn("Source note:", styles["tooltip_data"][0]["player_name"]["value"])
+            manual_index = next(
+                (index for index, record in enumerate(records) if record["competitive_scoring_share_display"].endswith("*")),
+                None,
+            )
+            self.assertIsNotNone(manual_index)
+            self.assertIn(
+                "legacy manual approximation",
+                styles["tooltip_data"][manual_index]["competitive_scoring_share_display"]["value"].lower(),
+            )
+            self.assertIn("Source note:", styles["tooltip_data"][manual_index]["player_name"]["value"])
 
     def test_detail_card_shows_manual_approximation_note(self) -> None:
         with TemporaryDirectory() as tmpdir:
