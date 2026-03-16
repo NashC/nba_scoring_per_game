@@ -60,35 +60,31 @@ def LiveLogo3D(
         props["aria-hidden"] = "true"
     else:
         props["role"] = "img"
-        props["aria-label"] = aria_label or "NBA Scoring Explorer live logo"
+        props["aria-label"] = aria_label or "Heat Check live logo"
 
     return html.Div(**props)
 
 
 def build_brand_lockup(
-    title: str = "NBA Scoring Explorer",
-    kicker: str = "Live scoring intelligence",
+    title: str | None = "🏀 🔥 Heat Check",
+    kicker: str | None = "The NBA's Greatest Single Game Scoring Performances",
     *,
     id: str | None = None,
     class_name: str | None = None,
-    logo_id: str | None = None,
 ) -> html.Div:
+    copy_children = []
+    if title:
+        copy_children.append(html.Div(title, className="brand-lockup-title"))
+    if kicker:
+        copy_children.append(html.Div(kicker, className="brand-lockup-kicker"))
+
     classes = " ".join(part for part in ("brand-lockup", class_name) if part)
     props: dict[str, Any] = {
         "className": classes,
         "children": [
-            LiveLogo3D(
-                id=logo_id,
-                variant="nav",
-                decorative=True,
-                class_name="brand-lockup-logo",
-            ),
             html.Div(
                 className="brand-lockup-copy",
-                children=[
-                    html.Div(title, className="brand-lockup-title"),
-                    html.Div(kicker, className="brand-lockup-kicker"),
-                ],
+                children=copy_children,
             ),
         ],
     }

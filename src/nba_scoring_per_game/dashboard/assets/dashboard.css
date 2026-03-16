@@ -27,7 +27,7 @@
   display: flex;
   align-items: flex-start;
   gap: 20px;
-  padding: 22px 26px;
+  padding: 17px 24px;
   margin-bottom: 16px;
 }
 
@@ -45,12 +45,13 @@
 
 .hero-metrics {
   display: grid;
-  grid-template-columns: repeat(5, minmax(100px, 1fr));
+  grid-template-columns: minmax(122px, 1.18fr) repeat(4, minmax(96px, 1fr));
   gap: 10px;
-  flex: 0 1 620px;
-  width: min(100%, 620px);
+  flex: 0 1 636px;
+  width: min(100%, 636px);
   min-width: 0;
   align-content: start;
+  align-self: center;
   margin-left: auto;
   overflow-x: auto;
   overscroll-behavior-x: contain;
@@ -412,8 +413,7 @@
 }
 
 .metric-chip--season .metric-chip-value {
-  font-size: 1.05rem;
-  letter-spacing: 0.01em;
+  white-space: nowrap;
 }
 
 .filter-bar {
@@ -1081,10 +1081,11 @@
   }
 
   .hero-metrics {
-    grid-template-columns: repeat(5, minmax(0, 1fr));
+    grid-template-columns: minmax(122px, 1.18fr) repeat(4, minmax(96px, 1fr));
     width: 100%;
     max-width: none;
     min-width: 0;
+    align-self: stretch;
     margin-left: 0;
   }
 }
