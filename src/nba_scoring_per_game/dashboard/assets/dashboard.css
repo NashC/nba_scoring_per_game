@@ -504,6 +504,10 @@
   font-size: 0.92rem;
 }
 
+.panel-caption-note {
+  font-size: 0.85rem;
+}
+
 .panel-button,
 .clear-comparisons-button,
 .comparison-chip-remove,
@@ -960,10 +964,61 @@
   letter-spacing: 0.08em;
 }
 
+.estimated-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+}
+
+.estimated-marker {
+  color: #8e3b46;
+  font-size: 0.9em;
+  font-weight: 800;
+}
+
 .detail-stat-value {
   margin-top: 4px;
   font-weight: 700;
   font-size: 1rem;
+}
+
+.detail-note {
+  margin-top: 14px;
+  border-top: 1px solid rgba(123, 109, 93, 0.18);
+  padding-top: 12px;
+}
+
+.detail-note-title {
+  font-size: 0.82rem;
+  font-weight: 800;
+  color: #4e4339;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.detail-note-text {
+  margin: 8px 0 0;
+  color: #635646;
+  line-height: 1.45;
+  font-size: 0.9rem;
+}
+
+.detail-note-link {
+  display: inline-block;
+  margin-top: 8px;
+  color: #0d5c63;
+  font-weight: 700;
+  text-decoration: none;
+}
+
+.detail-note-link:hover {
+  text-decoration: underline;
+}
+
+.chart-summary-note {
+  color: #7b6d5d;
+  font-size: 0.84rem;
+  margin-top: 6px;
 }
 
 .detail-empty,

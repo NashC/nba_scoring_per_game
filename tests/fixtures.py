@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from pathlib import Path
 from unittest.mock import patch
 
 import pandas as pd
@@ -17,6 +18,14 @@ def make_manifest_row() -> dict[str, object]:
         "away_team_id": 2,
         "home_team_tricode": "HOM",
         "away_team_tricode": "AWY",
+        "home_team_context_wins": 10,
+        "home_team_context_losses": 5,
+        "home_team_context_win_pct": 10 / 15,
+        "away_team_context_wins": 8,
+        "away_team_context_losses": 7,
+        "away_team_context_win_pct": 8 / 15,
+        "record_context_scope": "pregame",
+        "is_playoff_game": False,
     }
 
 
@@ -160,13 +169,40 @@ def make_boxscore_totals() -> pd.DataFrame:
         ]
     )
 
-
 def build_test_outputs(tmpdir: str) -> None:
     with patch("nba_scoring_per_game.pipeline.fetch_playbyplay", return_value=make_raw_playbyplay()), patch(
         "nba_scoring_per_game.pipeline.fetch_boxscore_player_totals",
         return_value=make_boxscore_totals(),
     ):
         process_game(make_manifest_row(), out_dir=tmpdir, write_mode="overwrite", raw_cache=False)
+
+
+def write_manual_approximation_note(tmpdir: str) -> None:
+    note = pd.DataFrame(
+        [
+            {
+                "game_id": "game-123",
+                "game_date": "2024-01-01",
+                "season": "2023-24",
+                "season_type": "Regular Season",
+                "player_name": "Away Scorer",
+                "player_id": 200,
+                "team_tricode": "AWY",
+                "opponent_team_tricode": "HOM",
+                "source_type": "manual_approximation",
+                "model_label": "quarter_even_model",
+                "source_note": "Test legacy approximation using published quarter scoring checkpoints and evenly spaced events.",
+                "primary_detail_source_url": "https://example.com/manual-game",
+                "secondary_detail_source_url": None,
+                "game_box_stats_json": "{}",
+                "period_points_json": "[]",
+                "quarter_box_stats_json": None,
+            }
+        ]
+    )
+    output_path = Path(tmpdir) / "manual_approximations" / "part-game-123.parquet"
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    note.to_parquet(output_path, index=False)
 
 
 def find_component_by_id(component, component_id: str):
@@ -182,3 +218,16 @@ def find_component_by_id(component, component_id: str):
                 return found
         return None
     return find_component_by_id(children, component_id)
+
+
+def flatten_component_text(component) -> str:
+    if component is None:
+        return ""
+    if isinstance(component, (str, int, float)):
+        return str(component)
+    children = getattr(component, "children", None)
+    if children is None:
+        return ""
+    if isinstance(children, (list, tuple)):
+        return " ".join(part for child in children if (part := flatten_component_text(child)))
+    return flatten_component_text(children)

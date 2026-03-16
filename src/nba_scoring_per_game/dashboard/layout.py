@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Any
 
 from dash import dcc, html
@@ -27,6 +28,8 @@ from .state import (
     select_records,
     selection_from_record,
 )
+
+_TEAM_LOGO_DIR = Path(__file__).with_name("assets") / "team_logos"
 
 
 def build_dashboard_layout(datasets: DashboardDatasets) -> html.Div:
@@ -335,6 +338,10 @@ def build_dashboard_layout(datasets: DashboardDatasets) -> html.Div:
                                                         "The active ranking metric is highlighted in the table.",
                                                         className="panel-caption",
                                                     ),
+                                                    html.P(
+                                                        "* marks values estimated from manual legacy reconstructions.",
+                                                        className="panel-caption panel-caption-note",
+                                                    ),
                                                 ]
                                             ),
                                             html.Button("Export CSV", id="export-leaderboard", className="panel-button", n_clicks=0),
@@ -536,50 +543,64 @@ def build_enriched_detail_cards(
 def build_detail_card(record: dict[str, Any], entity_mode: str, timeline_df):
     context = _context_shares(timeline_df)
     badges = _detail_badges(record, entity_mode, context)
+    opponent_metrics = [(label, value, False) for label, value in _opponent_context_metrics(record)]
     if entity_mode == "game":
         metrics = [
-            ("Points", record.get("final_points")),
-            ("Final Score", _final_score(record)),
-            ("Final Margin", _signed(record.get("final_player_team_margin"))),
-            ("TS%", _pct(record.get("ts_pct"), digits=1)),
-            ("eFG%", _pct(record.get("efg_pct"), digits=1)),
-            ("Points / Min", _decimal(record.get("points_per_minute"))),
-            ("Offensive Share", _pct(record.get("offensive_share"))),
-            ("Shot Mix", _shot_mix(record, with_share=True)),
-            ("Competitive", _share_with_points(record.get("competitive_points"), record.get("competitive_scoring_share"))),
-            ("Trailing", _share_with_points(record.get("trailing_points"), _ratio(record.get("trailing_points"), record.get("final_points")))),
-            ("Trailing Rate", _decimal(record.get("trailing_scoring_rate"))),
-            ("Best 60s", record.get("best_60_sec_points")),
-            ("Best 2 Min", record.get("best_2_min_points")),
-            ("Best 3 Min", record.get("best_3_min_points")),
-            ("Best 5 Min", record.get("best_5_min_points")),
-            ("Best 10 Min", record.get("best_10_min_points")),
-            ("Best Quarter", record.get("best_quarter_points")),
-            ("Best Half", record.get("best_half_points")),
-            ("Peak Proj 48", _decimal(record.get("peak_projected_48"))),
-            ("OT", "Yes" if record.get("went_to_overtime") else "No"),
+            ("Points", record.get("final_points"), False),
+            ("Final Score", _final_score(record), False),
+            ("Final Margin", _signed(record.get("final_player_team_margin")), False),
+            *opponent_metrics,
+            ("TS%", _pct(record.get("ts_pct"), digits=1), False),
+            ("eFG%", _pct(record.get("efg_pct"), digits=1), False),
+            ("Points / Min", _decimal(record.get("points_per_minute")), False),
+            ("Offensive Share", _pct(record.get("offensive_share")), False),
+            ("Shot Mix", _shot_mix(record, with_share=True), False),
+            ("Competitive", _share_with_points(record.get("competitive_points"), record.get("competitive_scoring_share")), _estimated_context(record)),
+            (
+                "Trailing",
+                _share_with_points(
+                    record.get("trailing_points"),
+                    _ratio(record.get("trailing_points"), record.get("final_points")),
+                ),
+                _estimated_context(record),
+            ),
+            ("Trailing Rate", _decimal(record.get("trailing_scoring_rate")), _estimated_context(record)),
+            ("Best 60s", record.get("best_60_sec_points"), _estimated_burst_metrics(record)),
+            ("Best 2 Min", record.get("best_2_min_points"), _estimated_burst_metrics(record)),
+            ("Best 3 Min", record.get("best_3_min_points"), _estimated_burst_metrics(record)),
+            ("Best 5 Min", record.get("best_5_min_points"), _estimated_burst_metrics(record)),
+            ("Best 10 Min", record.get("best_10_min_points"), _estimated_burst_metrics(record)),
+            ("Best Quarter", record.get("best_quarter_points"), False),
+            ("Best Half", record.get("best_half_points"), False),
+            ("Peak Proj 48", _decimal(record.get("peak_projected_48")), _estimated_timing(record)),
+            ("OT", "Yes" if record.get("went_to_overtime") else "No", False),
         ]
     else:
         points_key = {"quarter": "quarter_points", "half": "half_points", "burst": "points_in_window"}[entity_mode]
         rate_key = "window_points_per_minute" if entity_mode == "burst" else "points_per_minute"
         duration = _interval_duration(record, entity_mode)
         metrics = [
-            ("Points", record.get(points_key)),
-            ("Duration", duration),
-            ("Rate", _decimal(record.get(rate_key))),
-            ("Shot Mix", _shot_mix(record, with_share=True)),
-            ("Avg Diff", _decimal(record.get("avg_margin_during_scoring_events", record.get("avg_score_diff_in_window")))),
-            ("Median Diff", _decimal(record.get("median_margin_during_scoring_events", record.get("median_score_diff_in_window")))),
-            ("Competitive Share", _pct(record.get("competitive_scoring_share"))),
-            ("Trailing Share", _pct(context["trailing_share"])),
-            ("Leading Share", _pct(context["leading_share"])),
-            ("Tied Share", _pct(context["tied_share"])),
+            ("Points", record.get(points_key), entity_mode == "burst" and _estimated_burst_metrics(record)),
+            ("Duration", duration, False),
+            *opponent_metrics,
+            ("Rate", _decimal(record.get(rate_key)), entity_mode == "burst" and _estimated_burst_metrics(record)),
+            (
+                "Shot Mix",
+                _shot_mix(record, with_share=True),
+                _estimated_period_shot_mix(record) or (entity_mode == "burst" and _estimated_burst_metrics(record)),
+            ),
+            ("Avg Diff", _decimal(record.get("avg_margin_during_scoring_events", record.get("avg_score_diff_in_window"))), _estimated_context(record)),
+            ("Median Diff", _decimal(record.get("median_margin_during_scoring_events", record.get("median_score_diff_in_window"))), _estimated_context(record)),
+            ("Competitive Share", _pct(record.get("competitive_scoring_share")), _estimated_context(record)),
+            ("Trailing Share", _pct(context["trailing_share"]), _estimated_context(record)),
+            ("Leading Share", _pct(context["leading_share"]), _estimated_context(record)),
+            ("Tied Share", _pct(context["tied_share"]), _estimated_context(record)),
         ]
         if entity_mode == "burst":
             metrics.extend(
                 [
-                    ("Burst Start", f"{_period_string(record.get('start_period'))} · {record.get('start_clock')}"),
-                    ("Burst End", f"{_period_string(record.get('end_period'))} · {record.get('end_clock')}"),
+                    ("Burst Start", f"{_period_string(record.get('start_period'))} · {record.get('start_clock')}", _estimated_burst_metrics(record)),
+                    ("Burst End", f"{_period_string(record.get('end_period'))} · {record.get('end_clock')}", _estimated_burst_metrics(record)),
                 ]
             )
     return html.Div(
@@ -618,13 +639,14 @@ def build_detail_card(record: dict[str, Any], entity_mode: str, timeline_df):
                     html.Div(
                         className="detail-stat",
                         children=[
-                            html.Div(label, className="detail-stat-label"),
+                            html.Div(_metric_label(label, estimated), className="detail-stat-label"),
                             html.Div(value, className="detail-stat-value"),
                         ],
                     )
-                    for label, value in metrics
+                    for label, value, estimated in metrics
                 ],
             ),
+            _manual_approximation_note(record, entity_mode),
         ],
     )
 
@@ -696,6 +718,9 @@ def build_chart_summary_strip(selected_records: list[dict[str, Any]], entity_mod
                                                 class_name="team-logo team-logo-small",
                                             ),
                                             html.Span(record.get("opponent_team_tricode", "")),
+                                            html.Span("Playoffs", className="detail-mini-badge")
+                                            if _is_playoff_game(record)
+                                            else None,
                                         ],
                                     ),
                                 ],
@@ -705,6 +730,13 @@ def build_chart_summary_strip(selected_records: list[dict[str, Any]], entity_mod
                     ),
                     html.Div(className="chart-summary-metrics", children=_summary_metrics_for_record(record, entity_mode)),
                 ],
+            )
+        )
+    if any(_is_manual_approximation(record) for record in selected_records):
+        cards.append(
+            html.Div(
+                "* marks chart-summary values estimated from manual legacy reconstruction.",
+                className="chart-summary-note",
             )
         )
     return cards
@@ -818,6 +850,10 @@ def _detail_badges(
     context: dict[str, float | None],
 ) -> list[html.Span]:
     labels: list[str] = []
+    if _is_manual_approximation(record):
+        labels.append("Legacy Approx*")
+    if _is_playoff_game(record):
+        labels.append("Playoffs")
     if entity_mode == "game":
         pace_badge = _pace_benchmark_badge(record.get("peak_projected_48"))
         best_burst = _best_burst_badge(record)
@@ -871,7 +907,8 @@ def _team_logo_img(team_id: Any, tricode: Any, *, class_name: str = "team-logo")
         numeric_team_id = int(team_id)
     except (TypeError, ValueError):
         numeric_team_id = None
-    if numeric_team_id is None:
+    logo_path = _TEAM_LOGO_DIR / f"{numeric_team_id}.svg" if numeric_team_id is not None else None
+    if numeric_team_id is None or logo_path is None or not logo_path.exists():
         return html.Span(tri, className=f"{class_name} team-logo-fallback".strip())
     return html.Img(
         src=f"/assets/team_logos/{numeric_team_id}.svg",
@@ -886,39 +923,105 @@ def _summary_metrics_for_record(record: dict[str, Any], entity_mode: str) -> lis
         return [
             _summary_metric("Points", str(int(record.get("final_points", 0) or 0))),
             _summary_metric("Shot Mix", _shot_mix(record)),
-            _summary_metric("Comp", _pct(record.get("competitive_scoring_share"))),
-            _summary_metric("Peak Pace", _decimal(record.get("peak_projected_48"))),
+            _summary_metric("Comp", _pct(record.get("competitive_scoring_share")), estimated=_estimated_context(record)),
+            _summary_metric("Peak Pace", _decimal(record.get("peak_projected_48")), estimated=_estimated_timing(record)),
         ]
     if entity_mode == "quarter":
         return [
             _summary_metric("Points", str(int(record.get("quarter_points", 0) or 0))),
             _summary_metric("Rate", _decimal(record.get("points_per_minute"))),
-            _summary_metric("3PT Share", _pct(record.get("share_points_from_3s"))),
-            _summary_metric("Comp", _pct(record.get("competitive_scoring_share"))),
+            _summary_metric("3PT Share", _pct(record.get("share_points_from_3s")), estimated=_estimated_period_shot_mix(record)),
+            _summary_metric("Comp", _pct(record.get("competitive_scoring_share")), estimated=_estimated_context(record)),
         ]
     if entity_mode == "half":
         return [
             _summary_metric("Points", str(int(record.get("half_points", 0) or 0))),
             _summary_metric("Rate", _decimal(record.get("points_per_minute"))),
-            _summary_metric("3PT Share", _pct(record.get("share_points_from_3s"))),
-            _summary_metric("Comp", _pct(record.get("competitive_scoring_share"))),
+            _summary_metric("3PT Share", _pct(record.get("share_points_from_3s")), estimated=_estimated_period_shot_mix(record)),
+            _summary_metric("Comp", _pct(record.get("competitive_scoring_share")), estimated=_estimated_context(record)),
         ]
     return [
-        _summary_metric("Points", str(int(record.get("points_in_window", 0) or 0))),
-        _summary_metric("Rate", _decimal(record.get("window_points_per_minute", record.get("points_per_minute")))),
-        _summary_metric("3PT Share", _pct(record.get("share_points_from_3s"))),
-        _summary_metric("Comp", _pct(record.get("competitive_scoring_share"))),
+        _summary_metric("Points", str(int(record.get("points_in_window", 0) or 0)), estimated=_estimated_burst_metrics(record)),
+        _summary_metric(
+            "Rate",
+            _decimal(record.get("window_points_per_minute", record.get("points_per_minute"))),
+            estimated=_estimated_burst_metrics(record),
+        ),
+        _summary_metric("3PT Share", _pct(record.get("share_points_from_3s")), estimated=_is_manual_approximation(record)),
+        _summary_metric("Comp", _pct(record.get("competitive_scoring_share")), estimated=_estimated_context(record)),
     ]
 
 
-def _summary_metric(label: str, value: str) -> html.Div:
+def _summary_metric(label: str, value: str, *, estimated: bool = False) -> html.Div:
     return html.Div(
         className="chart-summary-metric",
         children=[
-            html.Div(label, className="chart-summary-metric-label"),
+            html.Div(_metric_label(label, estimated), className="chart-summary-metric-label"),
             html.Div(value, className="chart-summary-metric-value"),
         ],
     )
+
+
+def _metric_label(label: str, estimated: bool):
+    if not estimated:
+        return label
+    return html.Span(
+        [
+            html.Span(label),
+            html.Span("*", className="estimated-marker", title="Estimated from manual legacy reconstruction"),
+        ],
+        className="estimated-label",
+    )
+
+
+def _manual_approximation_note(record: dict[str, Any], entity_mode: str):
+    if not _is_manual_approximation(record):
+        return None
+    explanation = {
+        "game": "* Competitive, trailing, burst, and pace fields depend on estimated event timing or reconstructed score context.",
+        "quarter": "* Margin/context fields use reconstructed score context. Shot-mix fields are also estimated when period-level box stats are unavailable.",
+        "half": "* Margin/context fields use reconstructed score context. Shot-mix fields are also estimated when period-level box stats are unavailable.",
+        "burst": "* Burst timing, burst totals, and context fields come from evenly spaced scoring-event reconstruction.",
+    }.get(entity_mode, "* Some fields are estimated from manual legacy reconstruction.")
+    source_note = str(record.get("manual_source_note") or "").strip()
+    source_link = str(record.get("manual_primary_source_url") or "").strip()
+    children: list[Any] = [
+        html.Div("Legacy approximation note", className="detail-note-title"),
+        html.P(explanation, className="detail-note-text"),
+    ]
+    if source_note:
+        children.append(html.P(source_note, className="detail-note-text"))
+    if source_link:
+        children.append(
+            html.A(
+                "Primary source",
+                href=source_link,
+                target="_blank",
+                rel="noreferrer",
+                className="detail-note-link",
+            )
+        )
+    return html.Div(children, className="detail-note")
+
+
+def _is_manual_approximation(record: dict[str, Any]) -> bool:
+    return bool(record.get("is_manual_approximation"))
+
+
+def _estimated_context(record: dict[str, Any]) -> bool:
+    return _is_manual_approximation(record) and bool(record.get("estimated_score_context"))
+
+
+def _estimated_timing(record: dict[str, Any]) -> bool:
+    return _is_manual_approximation(record) and bool(record.get("estimated_event_timing"))
+
+
+def _estimated_burst_metrics(record: dict[str, Any]) -> bool:
+    return _is_manual_approximation(record) and bool(record.get("estimated_burst_metrics"))
+
+
+def _estimated_period_shot_mix(record: dict[str, Any]) -> bool:
+    return _is_manual_approximation(record) and bool(record.get("estimated_period_shot_mix"))
 
 
 def _shot_mix(record: dict[str, Any], *, with_share: bool = False) -> str:
@@ -938,6 +1041,23 @@ def _share_with_points(points: Any, share: Any) -> str:
     if points in {None, "", "None"}:
         return "NA"
     return f"{int(points)} · {_pct(share)}"
+
+
+def _opponent_record(record: dict[str, Any]) -> str:
+    wins = _int_or_none(record.get("opponent_wins"))
+    losses = _int_or_none(record.get("opponent_losses"))
+    if wins is None or losses is None:
+        return "NA"
+    return f"{wins}-{losses}"
+
+
+def _opponent_context_metrics(record: dict[str, Any]) -> list[tuple[str, str]]:
+    record_label = "Opp Reg Record" if _uses_regular_season_context(record) else "Opp Record"
+    win_pct_label = "Opp Reg Win Pct" if _uses_regular_season_context(record) else "Opp Win Pct"
+    return [
+        (record_label, _opponent_record(record)),
+        (win_pct_label, _sports_win_pct(record.get("opponent_win_pct"))),
+    ]
 
 
 def _final_score(record: dict[str, Any]) -> str:
@@ -963,6 +1083,43 @@ def _period_string(value: Any) -> str:
         return "NA"
     period = int(value)
     return f"Q{period}" if period <= 4 else f"OT{period - 4}"
+
+
+def _sports_win_pct(value: Any) -> str:
+    if value in {None, "", "None"}:
+        return "NA"
+    try:
+        numeric = float(value)
+    except (TypeError, ValueError):
+        return "NA"
+    formatted = f"{numeric:.3f}"
+    return formatted[1:] if 0 <= numeric < 1 else formatted
+
+
+def _uses_regular_season_context(record: dict[str, Any]) -> bool:
+    return str(record.get("opponent_record_scope", "")).strip().lower() == "regular_season_final"
+
+
+def _is_playoff_game(record: dict[str, Any]) -> bool:
+    value = record.get("is_playoff_game")
+    if value not in {None, "", "None"}:
+        if isinstance(value, bool):
+            return value
+        normalized = str(value).strip().lower()
+        if normalized in {"1", "true", "yes", "y"}:
+            return True
+        if normalized in {"0", "false", "no", "n"}:
+            return False
+    return str(record.get("season_type", "")).strip().lower() == "playoffs"
+
+
+def _int_or_none(value: Any) -> int | None:
+    if value in {None, "", "None"}:
+        return None
+    try:
+        return int(float(value))
+    except (TypeError, ValueError):
+        return None
 
 
 def _pace_benchmark_badge(value: Any) -> str | None:

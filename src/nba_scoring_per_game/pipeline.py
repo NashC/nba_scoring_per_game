@@ -32,7 +32,7 @@ from .transforms import (
 from .validation import validate_game
 
 WRITE_MODES = {"skip_existing", "overwrite", "error_if_exists"}
-DATASET_SCHEMA_VERSION = "2.3.0"
+DATASET_SCHEMA_VERSION = "2.4.0"
 DATASET_METADATA_FILENAME = "dataset_metadata.json"
 CURATED_DATASET_NAMES = (
     "raw_scoring_events",
@@ -523,6 +523,17 @@ def _add_matchup_context(df: pd.DataFrame, row: Mapping[str, Any]) -> pd.DataFra
     away_team_id = row.get("away_team_id")
     home_team_tricode = row.get("home_team_tricode")
     away_team_tricode = row.get("away_team_tricode")
+    home_team_context_wins = row.get("home_team_context_wins")
+    home_team_context_losses = row.get("home_team_context_losses")
+    home_team_context_win_pct = row.get("home_team_context_win_pct")
+    away_team_context_wins = row.get("away_team_context_wins")
+    away_team_context_losses = row.get("away_team_context_losses")
+    away_team_context_win_pct = row.get("away_team_context_win_pct")
+    record_context_scope = row.get("record_context_scope", "pregame")
+    is_playoff_game = _coerce_manifest_bool(
+        row.get("is_playoff_game"),
+        default=str(row.get("season_type", "")).strip().lower() == "playoffs",
+    )
     enriched["home_team_id"] = home_team_id
     enriched["home_team_tricode"] = home_team_tricode
     enriched["away_team_id"] = away_team_id
@@ -541,6 +552,20 @@ def _add_matchup_context(df: pd.DataFrame, row: Mapping[str, Any]) -> pd.DataFra
         [away_team_tricode if is_home else home_team_tricode for is_home in is_home_team],
         index=enriched.index,
     )
+    enriched["opponent_wins"] = pd.Series(
+        [away_team_context_wins if is_home else home_team_context_wins for is_home in is_home_team],
+        index=enriched.index,
+    )
+    enriched["opponent_losses"] = pd.Series(
+        [away_team_context_losses if is_home else home_team_context_losses for is_home in is_home_team],
+        index=enriched.index,
+    )
+    enriched["opponent_win_pct"] = pd.Series(
+        [away_team_context_win_pct if is_home else home_team_context_win_pct for is_home in is_home_team],
+        index=enriched.index,
+    )
+    enriched["opponent_record_scope"] = record_context_scope
+    enriched["is_playoff_game"] = is_playoff_game
     return enriched
 
 
@@ -589,7 +614,64 @@ def _resolve_matchup_context_from_playbyplay(
     resolved["home_team_tricode"] = str(home_row["teamTricode"])
     resolved["away_team_id"] = int(away_row["teamId"])
     resolved["away_team_tricode"] = str(away_row["teamTricode"])
+    return _realign_team_context_fields(resolved, row)
+
+
+def _realign_team_context_fields(
+    resolved: dict[str, Any],
+    original_row: Mapping[str, Any],
+) -> dict[str, Any]:
+    team_context_by_id: dict[int, dict[str, Any]] = {}
+    team_context_by_tricode: dict[str, dict[str, Any]] = {}
+    for side in ("home", "away"):
+        context = {
+            "wins": original_row.get(f"{side}_team_context_wins"),
+            "losses": original_row.get(f"{side}_team_context_losses"),
+            "win_pct": original_row.get(f"{side}_team_context_win_pct"),
+        }
+        team_id = original_row.get(f"{side}_team_id")
+        team_tricode = original_row.get(f"{side}_team_tricode")
+        try:
+            numeric_team_id = int(team_id)
+        except (TypeError, ValueError):
+            numeric_team_id = None
+        if numeric_team_id is not None:
+            team_context_by_id[numeric_team_id] = context
+        normalized_tricode = str(team_tricode).strip().upper()
+        if normalized_tricode:
+            team_context_by_tricode[normalized_tricode] = context
+
+    for side in ("home", "away"):
+        resolved_team_id = resolved.get(f"{side}_team_id")
+        resolved_tricode = str(resolved.get(f"{side}_team_tricode", "")).strip().upper()
+        try:
+            numeric_resolved_team_id = int(resolved_team_id)
+        except (TypeError, ValueError):
+            numeric_resolved_team_id = None
+        context = None
+        if numeric_resolved_team_id is not None:
+            context = team_context_by_id.get(numeric_resolved_team_id)
+        if context is None and resolved_tricode:
+            context = team_context_by_tricode.get(resolved_tricode)
+        if context is None:
+            continue
+        resolved[f"{side}_team_context_wins"] = context["wins"]
+        resolved[f"{side}_team_context_losses"] = context["losses"]
+        resolved[f"{side}_team_context_win_pct"] = context["win_pct"]
     return resolved
+
+
+def _coerce_manifest_bool(value: Any, *, default: bool) -> bool:
+    if value in {None, "", "None"}:
+        return default
+    if isinstance(value, bool):
+        return value
+    normalized = str(value).strip().lower()
+    if normalized in {"1", "true", "yes", "y"}:
+        return True
+    if normalized in {"0", "false", "no", "n"}:
+        return False
+    return default
 
 
 def _build_dataset_metadata() -> dict[str, Any]:

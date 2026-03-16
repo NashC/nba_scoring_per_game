@@ -59,6 +59,17 @@ Launch the interactive explorer against local parquet outputs:
 .venv/bin/nba-scoring-per-game serve-app --out-dir data
 ```
 
+## Live logo notes
+
+The Dash explorer now includes a procedural `LiveLogo3D` brand mark rendered entirely in-browser with the asset pipeline already used by Dash.
+
+- Architecture: the Python helper returns a normal Dash `html.Div` tree with `data-*` hooks, a canvas node, and a static HTML/CSS fallback. A single asset script initializes instances, survives Dash rerenders, and pauses offscreen or hidden-tab logos.
+- Why Canvas2D: this repo has no JS bundler or React layer. Canvas2D keeps the implementation asset-free, lightweight, and production-safe inside Dash while still supporting layered fire, embers, controlled glow, and responsive sizing.
+- Performance: the renderer caps device pixel ratio, keeps ember counts fixed, avoids free-running particle spawning, and disables animation when reduced motion is requested or the logo is offscreen.
+- Reduced motion: `prefers-reduced-motion` renders a still frame by default. The Dash helper also supports an explicit override for always-static or always-animated rendering.
+- Fallback: if JS, canvas, or observer APIs are unavailable, the static fallback remains visible so the app still shows a deliberate branded mark instead of a blank box.
+- Future upgrade path: if the app later adopts a bundled JS frontend, the same Dash-side API can be preserved while swapping the asset script for a WebGL or React-driven renderer behind the same DOM contract.
+
 ## Typical workflow
 
 1. Inspect one game to confirm the raw source shape.
@@ -314,6 +325,14 @@ The current app roadmap and remaining improvements live in [`docs/EXPANSION_PLAN
 
 ```bash
 PYTHONPATH=src .venv/bin/python -m unittest discover -s tests
+```
+
+Coverage reporting uses the optional test extra:
+
+```bash
+.venv/bin/python -m pip install --no-build-isolation -e '.[test]'
+PYTHONPATH=src .venv/bin/python -m coverage run -m unittest discover -s tests
+PYTHONPATH=src .venv/bin/python -m coverage report -m
 ```
 
 Live integration tests are opt-in:

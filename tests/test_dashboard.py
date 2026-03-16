@@ -1,12 +1,16 @@
 from __future__ import annotations
 
+import math
 from pathlib import Path
 from tempfile import TemporaryDirectory
 import unittest
 
 import pandas as pd
+from dash import no_update
 
-from nba_scoring_per_game.dashboard import create_dashboard_app, load_dashboard_datasets, render_dashboard_view
+from nba_scoring_per_game.dashboard import LiveLogo3D, create_dashboard_app, load_dashboard_datasets, render_dashboard_view
+from nba_scoring_per_game.dashboard.app import _updated_url_search
+from nba_scoring_per_game.dashboard.layout import build_detail_card
 from nba_scoring_per_game.dashboard.charts import (
     MARGIN_COLORS,
     build_rolling_analysis_series,
@@ -21,26 +25,84 @@ from nba_scoring_per_game.dashboard.state import (
     decode_dashboard_state,
     encode_dashboard_state,
     filter_summary_frame,
+    filter_values_from_filters,
     normalize_saved_bundles,
     serialize_saved_bundle,
 )
-from nba_scoring_per_game.pipeline import DATASET_METADATA_FILENAME
-from tests.fixtures import build_test_outputs, find_component_by_id
+from nba_scoring_per_game.pipeline import DATASET_METADATA_FILENAME, DATASET_SCHEMA_VERSION
+from tests.fixtures import build_test_outputs, find_component_by_id, flatten_component_text, write_manual_approximation_note
 
 
 class DashboardTests(unittest.TestCase):
+    def test_live_logo_uses_expected_dom_contract(self) -> None:
+        logo = LiveLogo3D(id="test-live-logo", variant="hero", size=320, animated=False, interactive=False, glow=False)
+        props = logo.to_plotly_json()["props"]
+
+        self.assertEqual(props["id"], "test-live-logo")
+        self.assertEqual(props["data-live-logo"], "true")
+        self.assertEqual(props["data-variant"], "hero")
+        self.assertEqual(props["data-size"], "320px")
+        self.assertEqual(props["data-animated"], "false")
+        self.assertEqual(props["data-interactive"], "false")
+        self.assertEqual(props["data-glow"], "false")
+        self.assertEqual(props["data-reduced-motion"], "system")
+        self.assertEqual(props["style"]["--live-logo-size"], "320px")
+        self.assertEqual(props["aria-hidden"], "true")
+        self.assertIn("live-logo--hero", props["className"])
+        self.assertEqual(len(props["children"]), 2)
+        self.assertEqual(props["children"][0].className, "live-logo-canvas")
+        self.assertEqual(props["children"][1].className, "live-logo-fallback")
+
+    def test_live_logo_supports_accessible_labeled_usage(self) -> None:
+        logo = LiveLogo3D(
+            variant="nav",
+            decorative=False,
+            aria_label="Scoring Explorer logo",
+            reduced_motion_override=True,
+        )
+        props = logo.to_plotly_json()["props"]
+
+        self.assertEqual(props["role"], "img")
+        self.assertEqual(props["aria-label"], "Scoring Explorer logo")
+        self.assertEqual(props["data-reduced-motion"], "true")
+        self.assertNotIn("aria-hidden", props)
+
+    def test_live_logo_preserves_fractional_size_and_rejects_non_positive_sizes(self) -> None:
+        logo = LiveLogo3D(size=48.5)
+        props = logo.to_plotly_json()["props"]
+
+        self.assertEqual(props["data-size"], "48.5px")
+        self.assertEqual(props["style"]["--live-logo-size"], "48.5px")
+        with self.assertRaisesRegex(ValueError, "size must be positive"):
+            LiveLogo3D(size=0)
+
+    def test_filter_values_drop_non_finite_numeric_values(self) -> None:
+        filters = DashboardFilters(
+            min_competitive_share=math.nan,
+            min_ts_pct=math.inf,
+            min_efg_pct=-math.inf,
+            min_offensive_share=0.4,
+        )
+        values = filter_values_from_filters(filters)
+
+        self.assertIsNone(values["min_competitive_share"])
+        self.assertIsNone(values["min_ts_pct"])
+        self.assertIsNone(values["min_efg_pct"])
+        self.assertEqual(values["min_offensive_share"], 0.4)
+
     def test_load_dashboard_datasets_missing_metadata_returns_unavailable(self) -> None:
         with TemporaryDirectory() as tmpdir:
             datasets = load_dashboard_datasets(tmpdir)
             self.assertFalse(datasets.available)
             self.assertIn("No curated parquet outputs", datasets.message or "")
 
-    def test_load_dashboard_datasets_rejects_schema_mismatch(self) -> None:
+    def test_load_dashboard_datasets_marks_schema_mismatch_unavailable(self) -> None:
         with TemporaryDirectory() as tmpdir:
             path = Path(tmpdir) / DATASET_METADATA_FILENAME
             path.write_text('{"dataset_schema_version": "0.0.0"}\n', encoding="utf-8")
-            with self.assertRaisesRegex(ValueError, "Unsupported dataset schema version"):
-                load_dashboard_datasets(tmpdir)
+            datasets = load_dashboard_datasets(tmpdir)
+            self.assertFalse(datasets.available)
+            self.assertIn(f"Expected {DATASET_SCHEMA_VERSION}, found 0.0.0", datasets.message or "")
 
     def test_render_dashboard_view_supports_game_and_burst_modes(self) -> None:
         with TemporaryDirectory() as tmpdir:
@@ -53,6 +115,10 @@ class DashboardTests(unittest.TestCase):
             self.assertTrue(game_view["figure"].data)
             self.assertTrue(game_view["primary_figure"].data)
             self.assertEqual(game_view["secondary_title"], "Secondary Analysis")
+            detail_text = flatten_component_text(game_view["details"][0])
+            self.assertIn("Opp Record", detail_text)
+            self.assertIn("10-5", detail_text)
+            self.assertIn(".667", detail_text)
 
             burst_filters = DashboardFilters(entity_mode="burst", ranking_metric="points_in_window", burst_window=180)
             burst_view = render_dashboard_view(datasets, tmpdir, burst_filters, None)
@@ -133,6 +199,9 @@ class DashboardTests(unittest.TestCase):
         with TemporaryDirectory() as tmpdir:
             build_test_outputs(tmpdir)
             app = create_dashboard_app(tmpdir)
+            self.assertIsNotNone(find_component_by_id(app.layout, "hero-brand-lockup"))
+            self.assertIsNotNone(find_component_by_id(app.layout, "hero-live-logo"))
+            self.assertIsNotNone(find_component_by_id(app.layout, "hero-brand-stage"))
             self.assertIsNotNone(find_component_by_id(app.layout, "app-guide"))
             self.assertIsNotNone(find_component_by_id(app.layout, "leaderboard-table"))
             self.assertIsNotNone(find_component_by_id(app.layout, "quick-view-bar"))
@@ -159,6 +228,15 @@ class DashboardTests(unittest.TestCase):
         with TemporaryDirectory() as tmpdir:
             app = create_dashboard_app(tmpdir)
             self.assertEqual(app.layout.className, "app-shell")
+            self.assertIsNotNone(find_component_by_id(app.layout, "empty-brand-lockup"))
+
+    def test_create_dashboard_app_handles_schema_mismatch_with_empty_state(self) -> None:
+        with TemporaryDirectory() as tmpdir:
+            path = Path(tmpdir) / DATASET_METADATA_FILENAME
+            path.write_text('{"dataset_schema_version": "0.0.0"}\n', encoding="utf-8")
+            app = create_dashboard_app(tmpdir)
+            self.assertEqual(app.layout.className, "app-shell")
+            self.assertIn(DATASET_SCHEMA_VERSION, flatten_component_text(app.layout))
 
     def test_encode_decode_dashboard_state_round_trip(self) -> None:
         filters = DashboardFilters(
@@ -238,6 +316,16 @@ class DashboardTests(unittest.TestCase):
         self.assertEqual(normalized[0].name, "Core Set")
         self.assertIn("rank=offensive_share", normalized[0].search)
 
+    def test_updated_url_search_ignores_selection_only_changes(self) -> None:
+        filters = DashboardFilters(entity_mode="game", ranking_metric="total_points", min_points=50)
+        current_search = encode_dashboard_state(filters, ["game:123:456"])
+
+        self.assertIs(_updated_url_search(filters, current_search), no_update)
+        self.assertEqual(
+            _updated_url_search(DashboardFilters(entity_mode="quarter", ranking_metric="quarter_points"), current_search),
+            "?mode=quarter&rank=quarter_points",
+        )
+
     def test_secondary_analysis_figure_adds_projected_pace_benchmarks(self) -> None:
         with TemporaryDirectory() as tmpdir:
             build_test_outputs(tmpdir)
@@ -287,7 +375,10 @@ class DashboardTests(unittest.TestCase):
             self.assertIn("opponent_team_logo_display", column_ids)
             self.assertEqual(styles["highlight_column_id"], "offensive_share_display")
             self.assertTrue(any(rule["if"]["column_id"] == "offensive_share_display" for rule in styles["style_header_conditional"]))
-            self.assertIn("/assets/team_logos/", records[0]["team_logo_display"])
+            self.assertTrue(
+                "/assets/team_logos/" in records[0]["team_logo_display"]
+                or records[0]["team_logo_display"] == "HOM"
+            )
             self.assertEqual(records[0]["game_date_display"], "2024")
             self.assertEqual(styles["tooltip_data"][0]["game_date_display"]["value"], "Exact date: 2024-01-01")
             self.assertEqual(styles["tooltip_header"]["ts_pct_display"]["type"], "markdown")
@@ -330,6 +421,41 @@ class DashboardTests(unittest.TestCase):
             self.assertEqual(styles["highlight_column_id"], "points_in_window_display")
             self.assertIn("burst window", styles["tooltip_header"]["points_in_window_display"]["value"])
 
+    def test_manual_approximation_rows_mark_estimated_values(self) -> None:
+        with TemporaryDirectory() as tmpdir:
+            build_test_outputs(tmpdir)
+            write_manual_approximation_note(tmpdir)
+            datasets = load_dashboard_datasets(tmpdir)
+            filters = DashboardFilters(entity_mode="game", ranking_metric="peak_projected_48")
+            frame = filter_summary_frame(datasets, filters)
+            records, _, styles = build_leaderboard_table(frame, filters, limit=5)
+
+            self.assertTrue(records[0]["peak_projected_48_display"].endswith("*"))
+            self.assertTrue(records[0]["competitive_scoring_share_display"].endswith("*"))
+            self.assertIn("legacy manual approximation", styles["tooltip_data"][0]["peak_projected_48_display"]["value"].lower())
+            self.assertIn("Source note:", styles["tooltip_data"][0]["player_name"]["value"])
+
+    def test_detail_card_shows_manual_approximation_note(self) -> None:
+        with TemporaryDirectory() as tmpdir:
+            build_test_outputs(tmpdir)
+            write_manual_approximation_note(tmpdir)
+            datasets = load_dashboard_datasets(tmpdir)
+            filters = DashboardFilters(entity_mode="game")
+            frame = filter_summary_frame(datasets, filters)
+            record = frame.iloc[0].to_dict()
+            timeline = pd.read_parquet(
+                Path(tmpdir)
+                / "player_scoring_timelines"
+                / "season=2023-24"
+                / "season_type=Regular Season"
+                / "part-game-123.parquet"
+            )
+            card = build_detail_card(record, "game", timeline.loc[timeline["player_id"].eq(200)].copy())
+            text = flatten_component_text(card)
+            self.assertIn("Legacy Approx", text)
+            self.assertIn("Legacy approximation note", text)
+            self.assertIn("Competitive", text)
+
     def test_render_dashboard_view_empty_state_includes_active_filter_guidance(self) -> None:
         with TemporaryDirectory() as tmpdir:
             build_test_outputs(tmpdir)
@@ -357,6 +483,63 @@ class DashboardTests(unittest.TestCase):
             self.assertTrue(
                 any(rule.get("if", {}).get("column_id") == "ts_pct_display" for rule in view["leaderboard_styles"]["style_data_conditional"])
             )
+
+    def test_build_detail_card_marks_playoff_games_and_uses_regular_season_context(self) -> None:
+        record = {
+            "player_name": "Playoff Scorer",
+            "team_id": 1,
+            "team_tricode": "HOM",
+            "opponent_team_id": 2,
+            "opponent_team_tricode": "AWY",
+            "game_date": "2024-04-20",
+            "entity_label": "Full Game",
+            "season_type": "Playoffs",
+            "is_playoff_game": True,
+            "opponent_record_scope": "regular_season_final",
+            "opponent_wins": 57,
+            "opponent_losses": 25,
+            "opponent_win_pct": 57 / 82,
+        }
+
+        card = build_detail_card(record, "game", pd.DataFrame())
+        detail_text = flatten_component_text(card)
+        self.assertIn("Playoffs", detail_text)
+        self.assertIn("Opp Reg Record", detail_text)
+        self.assertIn("57-25", detail_text)
+        self.assertIn("Opp Reg Win Pct", detail_text)
+        self.assertIn(".695", detail_text)
+
+    def test_build_detail_card_shows_opponent_context_for_burst_mode(self) -> None:
+        record = {
+            "player_name": "Burst Scorer",
+            "team_id": 1,
+            "team_tricode": "HOM",
+            "opponent_team_id": 2,
+            "opponent_team_tricode": "AWY",
+            "game_date": "2024-01-01",
+            "entity_label": "Best 3 Min",
+            "season_type": "Regular Season",
+            "is_playoff_game": False,
+            "opponent_record_scope": "pregame",
+            "opponent_wins": 10,
+            "opponent_losses": 5,
+            "opponent_win_pct": 10 / 15,
+            "points_in_window": 12,
+            "burst_window_seconds": 180,
+            "window_points_per_minute": 4.0,
+            "competitive_scoring_share": 0.75,
+            "start_period": 2,
+            "start_clock": "PT10M00.00S",
+            "end_period": 2,
+            "end_clock": "PT07M00.00S",
+        }
+
+        card = build_detail_card(record, "burst", pd.DataFrame())
+        detail_text = flatten_component_text(card)
+        self.assertIn("Opp Record", detail_text)
+        self.assertIn("10-5", detail_text)
+        self.assertIn("Opp Win Pct", detail_text)
+        self.assertIn(".667", detail_text)
 
     def test_trajectory_figure_shortens_legend_and_deemphasizes_secondary_selection(self) -> None:
         with TemporaryDirectory() as tmpdir:

@@ -4,6 +4,7 @@ from collections import OrderedDict
 from dataclasses import asdict, dataclass
 from datetime import datetime, UTC
 import math
+from pathlib import Path
 from typing import Any
 from urllib.parse import parse_qs, urlencode
 from uuid import uuid4
@@ -214,8 +215,41 @@ LEADERBOARD_BASE_SPECS = {
         ("share_points_from_fts", "FT Share", "pct1"),
     ],
 }
+ESTIMATED_LEADERBOARD_COLUMNS = {
+    "game": {
+        "competitive_points",
+        "competitive_scoring_share",
+        "trailing_points",
+        "trailing_scoring_rate",
+        "peak_projected_48",
+        "best_60_sec_points",
+        "best_2_min_points",
+        "best_3_min_points",
+        "best_5_min_points",
+        "best_10_min_points",
+    },
+    "quarter": {
+        "competitive_points",
+        "competitive_scoring_share",
+        "avg_abs_margin_during_scoring_events",
+    },
+    "half": {
+        "competitive_points",
+        "competitive_scoring_share",
+        "avg_abs_margin_during_scoring_events",
+    },
+    "burst": {
+        "points_in_window",
+        "window_points_per_minute",
+        "competitive_points",
+        "competitive_scoring_share",
+        "avg_abs_score_diff_in_window",
+        "trailing_points",
+    },
+}
 
 _FILTER_CACHE: OrderedDict[tuple[Any, ...], pd.DataFrame] = OrderedDict()
+_TEAM_LOGO_DIR = Path(__file__).with_name("assets") / "team_logos"
 
 
 @dataclass(slots=True)
@@ -454,7 +488,7 @@ def build_leaderboard_table(
         column_specs,
         highlight_column,
         filters.entity_mode,
-        tooltip_data=_leaderboard_tooltip_data(paged, column_specs),
+        tooltip_data=_leaderboard_tooltip_data(paged, column_specs, filters.entity_mode),
         page_count=_page_count(total_rows, page_size),
         total_rows=total_rows,
     )
@@ -720,7 +754,7 @@ def _prepare_leaderboard_dataframe(
     working = _sort_leaderboard_rows(working, column_specs, sort_by)
     for column_id, _, column_type in column_specs:
         display_id = _display_id(column_id)
-        working[display_id] = _format_display_series(working, column_id, column_type)
+        working[display_id] = _format_display_series(working, column_id, column_type, filters.entity_mode)
     return working, column_specs
 
 
@@ -809,7 +843,7 @@ def _sortable_column_type(
     return "text"
 
 
-def _format_display_series(df: pd.DataFrame, column_id: str, column_type: str) -> pd.Series:
+def _format_display_series(df: pd.DataFrame, column_id: str, column_type: str, entity_mode: str) -> pd.Series:
     if column_id == "rank":
         return df["rank"]
     if column_id == "team_logo":
@@ -820,19 +854,26 @@ def _format_display_series(df: pd.DataFrame, column_id: str, column_type: str) -
         return _format_game_year_series(df.get(column_id, pd.Series(index=df.index, dtype="object")))
     series = df.get(column_id, pd.Series(index=df.index, dtype="object"))
     if column_type == "text":
-        return series.fillna("").astype(str)
+        formatted = series.fillna("").astype(str)
+        return _append_estimation_markers(formatted, df, column_id, entity_mode)
     if column_type == "markdown":
-        return series.fillna("").astype(str)
+        formatted = series.fillna("").astype(str)
+        return _append_estimation_markers(formatted, df, column_id, entity_mode)
     numeric = pd.to_numeric(series, errors="coerce")
     if column_type == "int":
-        return numeric.map(lambda value: "NA" if pd.isna(value) else f"{int(round(float(value)))}")
+        formatted = numeric.map(lambda value: "NA" if pd.isna(value) else f"{int(round(float(value)))}")
+        return _append_estimation_markers(formatted, df, column_id, entity_mode)
     if column_type == "decimal":
-        return numeric.map(lambda value: "NA" if pd.isna(value) else f"{float(value):.1f}")
+        formatted = numeric.map(lambda value: "NA" if pd.isna(value) else f"{float(value):.1f}")
+        return _append_estimation_markers(formatted, df, column_id, entity_mode)
     if column_type == "minutes_from_seconds":
-        return numeric.map(lambda value: "NA" if pd.isna(value) else f"{float(value) / 60.0:.1f}")
+        formatted = numeric.map(lambda value: "NA" if pd.isna(value) else f"{float(value) / 60.0:.1f}")
+        return _append_estimation_markers(formatted, df, column_id, entity_mode)
     if column_type == "pct1":
-        return numeric.map(lambda value: "NA" if pd.isna(value) else f"{float(value):.1%}")
-    return series.fillna("").astype(str)
+        formatted = numeric.map(lambda value: "NA" if pd.isna(value) else f"{float(value):.1%}")
+        return _append_estimation_markers(formatted, df, column_id, entity_mode)
+    formatted = series.fillna("").astype(str)
+    return _append_estimation_markers(formatted, df, column_id, entity_mode)
 
 
 def _ranking_source_column(entity_mode: str, ranking_metric: str) -> str:
@@ -913,7 +954,8 @@ def _team_logo_markdown(team_id: Any, tricode: Any) -> str:
         numeric_team_id = int(team_id)
     except (TypeError, ValueError):
         numeric_team_id = None
-    if numeric_team_id is None:
+    logo_path = _TEAM_LOGO_DIR / f"{numeric_team_id}.svg" if numeric_team_id is not None else None
+    if numeric_team_id is None or logo_path is None or not logo_path.exists():
         return tri
     src = f"/assets/team_logos/{numeric_team_id}.svg"
     title = tri or str(numeric_team_id)
@@ -944,6 +986,7 @@ def _leaderboard_tooltip_header(
 def _leaderboard_tooltip_data(
     df: pd.DataFrame,
     column_specs: list[tuple[str, str, str]],
+    entity_mode: str,
 ) -> list[dict[str, dict[str, str]]]:
     if df.empty:
         return []
@@ -959,6 +1002,24 @@ def _leaderboard_tooltip_data(
                     "value": f"Exact date: {exact_date}",
                     "type": "text",
                 }
+        if bool(df.loc[index].get("is_manual_approximation")):
+            estimation_note = _manual_estimation_tooltip(df.loc[index], entity_mode)
+            for column_id, _, _ in column_specs:
+                display_id = _display_id(column_id)
+                if display_id not in supported_display_ids:
+                    continue
+                if _is_estimated_metric_column(column_id, entity_mode, df.loc[index]):
+                    row_tooltips[display_id] = {
+                        "value": estimation_note,
+                        "type": "text",
+                    }
+            row_tooltips.setdefault(
+                "player_name",
+                {
+                    "value": _manual_estimation_tooltip(df.loc[index], entity_mode, player_cell=True),
+                    "type": "text",
+                },
+            )
         tooltips.append(row_tooltips)
     return tooltips
 
@@ -1009,6 +1070,55 @@ def _column_tooltip(column_id: str, entity_mode: str) -> str:
         "trailing_scoring_rate": "**Trailing Rate**\n\n**Formula:** `trailing_points / minutes_played`\n\n**Why it matters:** It measures pressure scoring rather than overall volume.",
     }
     return definitions.get(column_id, f"{column_id.replace('_', ' ').title()} for the selected performance.")
+
+
+def _append_estimation_markers(
+    formatted: pd.Series,
+    df: pd.DataFrame,
+    column_id: str,
+    entity_mode: str,
+) -> pd.Series:
+    if "is_manual_approximation" not in df.columns:
+        return formatted
+    mask = pd.Series(
+        [_is_estimated_metric_column(column_id, entity_mode, df.loc[index]) for index in df.index],
+        index=df.index,
+        dtype=bool,
+    )
+    return formatted.where(~mask, formatted.astype(str) + "*")
+
+
+def _is_estimated_metric_column(column_id: str, entity_mode: str, row: pd.Series | dict[str, Any]) -> bool:
+    data = row if isinstance(row, dict) else row.to_dict()
+    if not bool(data.get("is_manual_approximation")):
+        return False
+    if column_id in {"share_points_from_3s", "share_points_from_fts", "share_points_from_2s"}:
+        return bool(data.get("estimated_period_shot_mix"))
+    if column_id == "points_per_minute" and entity_mode == "burst":
+        return True
+    return column_id in ESTIMATED_LEADERBOARD_COLUMNS.get(entity_mode, set())
+
+
+def _manual_estimation_tooltip(
+    row: pd.Series | dict[str, Any],
+    entity_mode: str,
+    *,
+    player_cell: bool = False,
+) -> str:
+    data = row if isinstance(row, dict) else row.to_dict()
+    source_note = str(data.get("manual_source_note") or "").strip()
+    intro = "Legacy manual approximation."
+    entity_hint = {
+        "game": "Timing, burst, and score-context metrics are estimated from published splits.",
+        "quarter": "Score-context metrics are estimated from published splits.",
+        "half": "Score-context metrics are estimated from published splits.",
+        "burst": "Burst timing, points, and context metrics are estimated from evenly spaced scoring events.",
+    }.get(entity_mode, "Some metrics are estimated from published splits.")
+    if bool(data.get("estimated_period_shot_mix")):
+        entity_hint += " Segment shot-mix fields are also estimated from game totals."
+    if source_note:
+        return f"{intro} {entity_hint}\n\nSource note: {source_note}"
+    return f"{intro} {entity_hint}"
 
 
 def _format_game_year_series(series: pd.Series) -> pd.Series:

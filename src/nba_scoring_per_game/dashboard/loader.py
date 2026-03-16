@@ -19,6 +19,7 @@ class DashboardDatasets:
     quarter_summaries: pd.DataFrame
     half_summaries: pd.DataFrame
     burst_summaries: pd.DataFrame
+    manual_notes: pd.DataFrame
     available: bool
     message: str | None = None
 
@@ -36,6 +37,7 @@ def load_dashboard_datasets(out_dir: str | Path = "data") -> DashboardDatasets:
             quarter_summaries=pd.DataFrame(),
             half_summaries=pd.DataFrame(),
             burst_summaries=pd.DataFrame(),
+            manual_notes=pd.DataFrame(),
             available=False,
             message=(
                 "No curated parquet outputs were found. "
@@ -46,9 +48,22 @@ def load_dashboard_datasets(out_dir: str | Path = "data") -> DashboardDatasets:
     metadata = get_dataset_metadata(out_path)
     schema_version = metadata.get("dataset_schema_version")
     if schema_version != DATASET_SCHEMA_VERSION:
-        raise ValueError(
-            "Unsupported dataset schema version for the dashboard. "
-            f"Expected {DATASET_SCHEMA_VERSION}, found {schema_version}."
+        return DashboardDatasets(
+            out_dir=out_path,
+            metadata=metadata,
+            summary_signature=_summary_signature(out_path),
+            game_summaries=pd.DataFrame(),
+            quarter_summaries=pd.DataFrame(),
+            half_summaries=pd.DataFrame(),
+            burst_summaries=pd.DataFrame(),
+            manual_notes=pd.DataFrame(),
+            available=False,
+            message=(
+                "Curated outputs were found, but they use an older dashboard schema. "
+                f"Expected {DATASET_SCHEMA_VERSION}, found {schema_version}. "
+                f"Rebuild this out-dir with the current pipeline, for example: "
+                f"`nba-scoring-per-game backfill-season --season 2023-24 --out-dir {out_path}`."
+            ),
         )
 
     summary_signature = _summary_signature(out_path)
@@ -62,12 +77,29 @@ def load_dashboard_datasets(out_dir: str | Path = "data") -> DashboardDatasets:
             out_dir=out_path,
             metadata=metadata,
             summary_signature=summary_signature,
-            game_summaries=_prepare_summary_frame(load_dataset(out_path / "player_game_summaries")),
-            quarter_summaries=_prepare_summary_frame(load_dataset(out_path / "player_quarter_summaries")),
-            half_summaries=_prepare_summary_frame(load_dataset(out_path / "player_half_summaries")),
-            burst_summaries=_prepare_summary_frame(load_dataset(out_path / "player_burst_summaries")),
+            manual_notes=_prepare_manual_notes(load_dataset(out_path / "manual_approximations")),
+            game_summaries=pd.DataFrame(),
+            quarter_summaries=pd.DataFrame(),
+            half_summaries=pd.DataFrame(),
+            burst_summaries=pd.DataFrame(),
             available=True,
             message=None,
+        )
+        datasets.game_summaries = _prepare_summary_frame(
+            load_dataset(out_path / "player_game_summaries"),
+            datasets.manual_notes,
+        )
+        datasets.quarter_summaries = _prepare_summary_frame(
+            load_dataset(out_path / "player_quarter_summaries"),
+            datasets.manual_notes,
+        )
+        datasets.half_summaries = _prepare_summary_frame(
+            load_dataset(out_path / "player_half_summaries"),
+            datasets.manual_notes,
+        )
+        datasets.burst_summaries = _prepare_summary_frame(
+            load_dataset(out_path / "player_burst_summaries"),
+            datasets.manual_notes,
         )
         if all(
             frame.empty
@@ -140,6 +172,7 @@ def _summary_signature(out_dir: Path) -> tuple[tuple[str, int], ...]:
         out_dir / "player_quarter_summaries",
         out_dir / "player_half_summaries",
         out_dir / "player_burst_summaries",
+        out_dir / "manual_approximations",
     ]
     signature: list[tuple[str, int]] = []
     for target in targets:
@@ -177,12 +210,109 @@ def _cache_for_out_dir(out_dir: Path) -> Cache:
     return Cache(str(cache_dir))
 
 
-def _prepare_summary_frame(df: pd.DataFrame) -> pd.DataFrame:
+def _prepare_summary_frame(df: pd.DataFrame, manual_notes: pd.DataFrame | None = None) -> pd.DataFrame:
     if df.empty:
         return df
     prepared = df.copy()
+    prepared = _merge_manual_notes(prepared, manual_notes)
     if "era" not in prepared.columns and "season" in prepared.columns:
         prepared["era"] = prepared["season"].astype(str).map(_season_to_era)
+    return prepared
+
+
+def _prepare_manual_notes(df: pd.DataFrame) -> pd.DataFrame:
+    if df.empty:
+        return pd.DataFrame(
+            columns=[
+                "season",
+                "season_type",
+                "game_date",
+                "game_id",
+                "player_id",
+                "source_type",
+                "manual_model_label",
+                "manual_source_note",
+                "manual_primary_source_url",
+                "manual_secondary_source_url",
+                "is_manual_approximation",
+                "has_exact_period_box_stats",
+                "estimated_event_timing",
+                "estimated_score_context",
+                "estimated_burst_metrics",
+                "estimated_period_shot_mix",
+            ]
+        )
+    prepared = df.copy()
+    quarter_box_stats = prepared.get("quarter_box_stats_json", pd.Series(index=prepared.index, dtype="object"))
+    prepared["is_manual_approximation"] = prepared.get("source_type", pd.Series(index=prepared.index)).astype(str).eq(
+        "manual_approximation"
+    )
+    prepared["has_exact_period_box_stats"] = quarter_box_stats.fillna("").astype(str).str.strip().ne("")
+    prepared["estimated_event_timing"] = prepared["is_manual_approximation"]
+    prepared["estimated_score_context"] = prepared["is_manual_approximation"]
+    prepared["estimated_burst_metrics"] = prepared["is_manual_approximation"]
+    prepared["estimated_period_shot_mix"] = prepared["is_manual_approximation"] & ~prepared["has_exact_period_box_stats"]
+    prepared = prepared.rename(
+        columns={
+            "model_label": "manual_model_label",
+            "source_note": "manual_source_note",
+            "primary_detail_source_url": "manual_primary_source_url",
+            "secondary_detail_source_url": "manual_secondary_source_url",
+        }
+    )
+    columns = [
+        "season",
+        "season_type",
+        "game_date",
+        "game_id",
+        "player_id",
+        "source_type",
+        "manual_model_label",
+        "manual_source_note",
+        "manual_primary_source_url",
+        "manual_secondary_source_url",
+        "is_manual_approximation",
+        "has_exact_period_box_stats",
+        "estimated_event_timing",
+        "estimated_score_context",
+        "estimated_burst_metrics",
+        "estimated_period_shot_mix",
+    ]
+    return prepared[columns].drop_duplicates(subset=["season", "season_type", "game_date", "game_id", "player_id"])
+
+
+def _merge_manual_notes(df: pd.DataFrame, manual_notes: pd.DataFrame | None) -> pd.DataFrame:
+    prepared = df.copy()
+    default_bool_columns = [
+        "is_manual_approximation",
+        "has_exact_period_box_stats",
+        "estimated_event_timing",
+        "estimated_score_context",
+        "estimated_burst_metrics",
+        "estimated_period_shot_mix",
+    ]
+    default_text_columns = [
+        "source_type",
+        "manual_model_label",
+        "manual_source_note",
+        "manual_primary_source_url",
+        "manual_secondary_source_url",
+    ]
+    if manual_notes is not None and not manual_notes.empty:
+        merge_keys = [
+            key
+            for key in ["season", "season_type", "game_date", "game_id", "player_id"]
+            if key in prepared.columns and key in manual_notes.columns
+        ]
+        note_columns = merge_keys + default_text_columns + default_bool_columns
+        prepared = prepared.merge(manual_notes[note_columns], on=merge_keys, how="left")
+    for column in default_text_columns:
+        if column not in prepared.columns:
+            prepared[column] = pd.NA
+    for column in default_bool_columns:
+        if column not in prepared.columns:
+            prepared[column] = False
+        prepared[column] = prepared[column].fillna(False).astype(bool)
     return prepared
 
 

@@ -83,8 +83,9 @@ def main() -> None:
         return
 
     if args.command == "serve-app":
+        debug = _parse_bool(args.debug)
         app = create_dashboard_app(args.out_dir)
-        app.run(host=args.host, port=args.port, debug=_parse_bool(args.debug))
+        app.run(host=args.host, port=args.port, debug=debug)
         return
 
     if args.command == "process-game":

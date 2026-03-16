@@ -52,16 +52,27 @@ class PipelineTests(unittest.TestCase):
             self.assertIn("points_from_3s", summaries.columns)
             self.assertIn("margin_bucket", timelines.columns)
             self.assertIn("opponent_team_tricode", raw_scoring.columns)
+            self.assertIn("opponent_win_pct", raw_scoring.columns)
             self.assertIn("home_team_id", summaries.columns)
+            self.assertIn("opponent_wins", summaries.columns)
+            self.assertIn("opponent_record_scope", summaries.columns)
             self.assertIn("final_player_team_score", summaries.columns)
             home_row = summaries.loc[summaries["player_id"].eq(100)].iloc[0]
             away_row = summaries.loc[summaries["player_id"].eq(200)].iloc[0]
             self.assertEqual(int(home_row["home_team_id"]), 1)
             self.assertEqual(home_row["opponent_team_tricode"], "AWY")
+            self.assertEqual(int(home_row["opponent_wins"]), 8)
+            self.assertEqual(int(home_row["opponent_losses"]), 7)
+            self.assertAlmostEqual(float(home_row["opponent_win_pct"]), 8 / 15, places=6)
+            self.assertEqual(home_row["opponent_record_scope"], "pregame")
+            self.assertFalse(bool(home_row["is_playoff_game"]))
             self.assertEqual(bool(home_row["is_home_team"]), True)
             self.assertEqual(int(home_row["final_player_team_score"]), 3)
             self.assertEqual(int(home_row["final_opponent_score"]), 5)
             self.assertEqual(int(away_row["opponent_team_id"]), 1)
+            self.assertEqual(int(away_row["opponent_wins"]), 10)
+            self.assertEqual(int(away_row["opponent_losses"]), 5)
+            self.assertAlmostEqual(float(away_row["opponent_win_pct"]), 10 / 15, places=6)
             self.assertTrue((base / "validation_reports").exists())
 
     def test_build_dataset_skips_existing_after_success(self) -> None:
@@ -233,6 +244,11 @@ class PipelineTests(unittest.TestCase):
         self.assertEqual(len(manifest), 1)
         self.assertEqual(manifest.iloc[0]["home_team_id"], 1)
         self.assertEqual(manifest.iloc[0]["away_team_id"], 2)
+        self.assertEqual(int(manifest.iloc[0]["home_team_context_wins"]), 0)
+        self.assertEqual(int(manifest.iloc[0]["home_team_context_losses"]), 0)
+        self.assertEqual(float(manifest.iloc[0]["home_team_context_win_pct"]), 0.0)
+        self.assertEqual(manifest.iloc[0]["record_context_scope"], "pregame")
+        self.assertFalse(bool(manifest.iloc[0]["is_playoff_game"]))
 
     def test_fetch_game_manifest_supports_min_player_points_prefilter(self) -> None:
         team_logs = pd.DataFrame(
@@ -302,6 +318,156 @@ class PipelineTests(unittest.TestCase):
         self.assertEqual(len(manifest), 1)
         self.assertEqual(manifest.iloc[0]["game_id"], "game-456")
 
+    def test_fetch_game_manifest_adds_pregame_record_context(self) -> None:
+        team_logs = pd.DataFrame(
+            [
+                {
+                    "SEASON_ID": "22023",
+                    "TEAM_ID": 1,
+                    "TEAM_ABBREVIATION": "HOM",
+                    "TEAM_NAME": "Home",
+                    "GAME_ID": "game-123",
+                    "GAME_DATE": "2024-01-01",
+                    "MATCHUP": "HOM vs. AWY",
+                    "WL": "W",
+                },
+                {
+                    "SEASON_ID": "22023",
+                    "TEAM_ID": 2,
+                    "TEAM_ABBREVIATION": "AWY",
+                    "TEAM_NAME": "Away",
+                    "GAME_ID": "game-123",
+                    "GAME_DATE": "2024-01-01",
+                    "MATCHUP": "AWY @ HOM",
+                    "WL": "L",
+                },
+                {
+                    "SEASON_ID": "22023",
+                    "TEAM_ID": 2,
+                    "TEAM_ABBREVIATION": "AWY",
+                    "TEAM_NAME": "Away",
+                    "GAME_ID": "game-456",
+                    "GAME_DATE": "2024-01-03",
+                    "MATCHUP": "AWY vs. HOM",
+                    "WL": "W",
+                },
+                {
+                    "SEASON_ID": "22023",
+                    "TEAM_ID": 1,
+                    "TEAM_ABBREVIATION": "HOM",
+                    "TEAM_NAME": "Home",
+                    "GAME_ID": "game-456",
+                    "GAME_DATE": "2024-01-03",
+                    "MATCHUP": "HOM @ AWY",
+                    "WL": "L",
+                },
+            ]
+        )
+
+        with patch("nba_scoring_per_game.source._fetch_league_game_log", return_value=team_logs):
+            manifest = fetch_game_manifest("2023-24")
+
+        second_game = manifest.loc[manifest["game_id"].eq("game-456")].iloc[0]
+        self.assertEqual(int(second_game["home_team_context_wins"]), 0)
+        self.assertEqual(int(second_game["home_team_context_losses"]), 1)
+        self.assertAlmostEqual(float(second_game["home_team_context_win_pct"]), 0.0, places=6)
+        self.assertEqual(int(second_game["away_team_context_wins"]), 1)
+        self.assertEqual(int(second_game["away_team_context_losses"]), 0)
+        self.assertAlmostEqual(float(second_game["away_team_context_win_pct"]), 1.0, places=6)
+
+    def test_fetch_game_manifest_uses_regular_season_totals_for_playoffs(self) -> None:
+        playoff_logs = pd.DataFrame(
+            [
+                {
+                    "SEASON_ID": "42023",
+                    "TEAM_ID": 1,
+                    "TEAM_ABBREVIATION": "HOM",
+                    "TEAM_NAME": "Home",
+                    "GAME_ID": "game-playoff-1",
+                    "GAME_DATE": "2024-04-20",
+                    "MATCHUP": "HOM vs. AWY",
+                    "WL": "W",
+                },
+                {
+                    "SEASON_ID": "42023",
+                    "TEAM_ID": 2,
+                    "TEAM_ABBREVIATION": "AWY",
+                    "TEAM_NAME": "Away",
+                    "GAME_ID": "game-playoff-1",
+                    "GAME_DATE": "2024-04-20",
+                    "MATCHUP": "AWY @ HOM",
+                    "WL": "L",
+                },
+            ]
+        )
+        regular_season_logs = pd.DataFrame(
+            [
+                {
+                    "SEASON_ID": "22023",
+                    "TEAM_ID": 1,
+                    "TEAM_ABBREVIATION": "HOM",
+                    "TEAM_NAME": "Home",
+                    "GAME_ID": "game-rs-1",
+                    "GAME_DATE": "2024-01-01",
+                    "MATCHUP": "HOM vs. XYZ",
+                    "WL": "W",
+                },
+                {
+                    "SEASON_ID": "22023",
+                    "TEAM_ID": 1,
+                    "TEAM_ABBREVIATION": "HOM",
+                    "TEAM_NAME": "Home",
+                    "GAME_ID": "game-rs-2",
+                    "GAME_DATE": "2024-01-03",
+                    "MATCHUP": "HOM @ XYZ",
+                    "WL": "W",
+                },
+                {
+                    "SEASON_ID": "22023",
+                    "TEAM_ID": 2,
+                    "TEAM_ABBREVIATION": "AWY",
+                    "TEAM_NAME": "Away",
+                    "GAME_ID": "game-rs-3",
+                    "GAME_DATE": "2024-01-02",
+                    "MATCHUP": "AWY @ ABC",
+                    "WL": "L",
+                },
+                {
+                    "SEASON_ID": "22023",
+                    "TEAM_ID": 2,
+                    "TEAM_ABBREVIATION": "AWY",
+                    "TEAM_NAME": "Away",
+                    "GAME_ID": "game-rs-4",
+                    "GAME_DATE": "2024-01-04",
+                    "MATCHUP": "AWY vs. ABC",
+                    "WL": "W",
+                },
+            ]
+        )
+
+        def fake_fetch(*, season: str, season_type: str, player_or_team_abbreviation: str) -> pd.DataFrame:
+            self.assertEqual(season, "2023-24")
+            self.assertEqual(player_or_team_abbreviation, "T")
+            if season_type == "Playoffs":
+                return playoff_logs
+            if season_type == "Regular Season":
+                return regular_season_logs
+            raise AssertionError(f"Unexpected season_type: {season_type}")
+
+        with patch("nba_scoring_per_game.source._fetch_league_game_log", side_effect=fake_fetch):
+            manifest = fetch_game_manifest("2023-24", season_type="Playoffs")
+
+        self.assertEqual(len(manifest), 1)
+        row = manifest.iloc[0]
+        self.assertEqual(int(row["home_team_context_wins"]), 2)
+        self.assertEqual(int(row["home_team_context_losses"]), 0)
+        self.assertAlmostEqual(float(row["home_team_context_win_pct"]), 1.0, places=6)
+        self.assertEqual(int(row["away_team_context_wins"]), 1)
+        self.assertEqual(int(row["away_team_context_losses"]), 1)
+        self.assertAlmostEqual(float(row["away_team_context_win_pct"]), 0.5, places=6)
+        self.assertEqual(row["record_context_scope"], "regular_season_final")
+        self.assertTrue(bool(row["is_playoff_game"]))
+
     def test_fetch_game_manifest_tolerates_ambiguous_current_season_matchups(self) -> None:
         team_logs = pd.DataFrame(
             [
@@ -338,8 +504,14 @@ class PipelineTests(unittest.TestCase):
         manifest_row = make_manifest_row() | {
             "home_team_id": 2,
             "home_team_tricode": "AWY",
+            "home_team_context_wins": 8,
+            "home_team_context_losses": 7,
+            "home_team_context_win_pct": 8 / 15,
             "away_team_id": 1,
             "away_team_tricode": "HOM",
+            "away_team_context_wins": 10,
+            "away_team_context_losses": 5,
+            "away_team_context_win_pct": 10 / 15,
         }
         with TemporaryDirectory() as tmpdir:
             with patch("nba_scoring_per_game.pipeline.fetch_playbyplay", return_value=make_raw_playbyplay()), patch(
@@ -351,6 +523,8 @@ class PipelineTests(unittest.TestCase):
         self.assertEqual(artifact.status, "success")
         self.assertEqual(artifact.manifest_row["home_team_tricode"], "HOM")
         self.assertEqual(artifact.manifest_row["away_team_tricode"], "AWY")
+        self.assertEqual(int(artifact.manifest_row["home_team_context_wins"]), 10)
+        self.assertEqual(int(artifact.manifest_row["away_team_context_wins"]), 8)
 
 
 if __name__ == "__main__":
