@@ -34,8 +34,6 @@ from nba_scoring_per_game.dashboard.state import (
     encode_dashboard_state,
     filter_summary_frame,
     filter_values_from_filters,
-    normalize_saved_bundles,
-    serialize_saved_bundle,
 )
 from nba_scoring_per_game.manual_games import WILT_100_TEAM_ID, WILT_100_TEAM_TRICODE
 from nba_scoring_per_game.pipeline import DATASET_METADATA_FILENAME, DATASET_SCHEMA_VERSION
@@ -261,16 +259,18 @@ class DashboardTests(unittest.TestCase):
             self.assertIsNotNone(find_component_by_id(app.layout, "comparison-tray"))
             self.assertIsNotNone(find_component_by_id(app.layout, "chart-summary-strip"))
             self.assertIsNotNone(find_component_by_id(app.layout, "chart-visual-key"))
-            self.assertIsNotNone(find_component_by_id(app.layout, "saved-bundle-select"))
+            self.assertIsNotNone(find_component_by_id(app.layout, "copy-link"))
+            self.assertIsNone(find_component_by_id(app.layout, "saved-bundle-select"))
             self.assertIsNotNone(find_component_by_id(app.layout, "remove-last-comparison"))
             self.assertIsNotNone(find_component_by_id(app.layout, "detail-panel-content"))
             table = find_component_by_id(app.layout, "leaderboard-table")
             self.assertEqual(table.markdown_options, {"html": True})
             self.assertEqual(table.page_action, "custom")
-            self.assertEqual(table.fixed_columns, {"headers": True, "data": 3})
+            self.assertFalse(hasattr(table, "fixed_columns"))
             self.assertEqual(table.sort_action, "custom")
             self.assertEqual(table.sort_mode, "single")
             self.assertEqual(table.page_size, 10)
+            self.assertEqual(table.selected_rows, [0])
             self.assertIsNotNone(table.tooltip_header)
             self.assertIsNotNone(table.tooltip_data)
             self.assertIn("game_date_display", table.tooltip_header)
@@ -351,22 +351,6 @@ class DashboardTests(unittest.TestCase):
         self.assertTrue(pd.isna(rolling_rate["analysis_value"].iloc[0]))
         self.assertTrue(pd.isna(rolling_rate["analysis_value"].iloc[1]))
         self.assertAlmostEqual(float(rolling_rate["analysis_value"].iloc[2]), 10.5, places=6)
-
-    def test_saved_bundle_serialization_and_normalization(self) -> None:
-        bundle = serialize_saved_bundle(
-            "Core Set",
-            DashboardFilters(entity_mode="game", ranking_metric="offensive_share"),
-            ["game:g1:1"],
-        )
-        normalized = normalize_saved_bundles(
-            [
-                {"id": bundle.id, "name": bundle.name, "search": bundle.search, "saved_at": bundle.saved_at},
-                {"name": "bad"},
-            ]
-        )
-        self.assertEqual(len(normalized), 1)
-        self.assertEqual(normalized[0].name, "Core Set")
-        self.assertIn("rank=offensive_share", normalized[0].search)
 
     def test_updated_url_search_ignores_selection_only_changes(self) -> None:
         filters = DashboardFilters(entity_mode="game", ranking_metric="total_points", min_points=50)
@@ -560,7 +544,7 @@ class DashboardTests(unittest.TestCase):
 
         self.assertIn("Bam Adebayo", flatten_component_text(detail_card))
         self.assertIn("Bam Adebayo · Full Game", flatten_component_text(comparison_tray))
-        self.assertIn("Bam Adebayo", flatten_component_text(summary_strip))
+        self.assertEqual(flatten_component_text(summary_strip), "")
         self.assertIn("cdn.nba.com/headshots/nba/latest/260x190/1628389.png", headshot.style["backgroundImage"])
         self.assertIn("player-headshot-fallback.svg", headshot.style["backgroundImage"])
 

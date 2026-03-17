@@ -3,6 +3,7 @@ from __future__ import annotations
 import os
 from pathlib import Path
 from typing import Any
+from urllib.parse import parse_qs
 
 import pandas as pd
 from dash import ALL, Dash, Input, Output, State, ctx, dcc, html, no_update
@@ -30,10 +31,7 @@ from .state import (
     get_preset_label,
     get_ranking_options,
     normalize_filters,
-    normalize_saved_bundles,
-    saved_bundles_payload,
     select_records,
-    serialize_saved_bundle,
 )
 
 _PRESET_FILTER_OUTPUT_COUNT = 19
@@ -138,7 +136,9 @@ def render_dashboard_view(
     }
 
 
-def _quick_view_preset(triggered_id: Any) -> str | Any:
+def _quick_view_preset(triggered_id: Any, clicks: list[int] | None = None) -> str | Any:
+    if clicks is not None and not any(int(click or 0) > 0 for click in clicks):
+        return no_update
     if isinstance(triggered_id, dict) and triggered_id.get("type") == "quick-view-button":
         return triggered_id.get("preset")
     return no_update
@@ -172,60 +172,6 @@ def _preset_filter_values(preset: str | None, current_search: str | None) -> tup
         None,
         None,
     )
-
-
-def _saved_bundle_options(saved_bundles: Any, current_value: str | None) -> tuple[list[dict[str, str]], str | None]:
-    bundles = normalize_saved_bundles(saved_bundles)
-    options = [{"label": bundle.name, "value": bundle.id} for bundle in bundles]
-    valid_ids = {bundle.id for bundle in bundles}
-    if current_value in valid_ids:
-        value = current_value
-    else:
-        value = bundles[0].id if bundles else None
-    return options, value
-
-
-def _saved_bundle_action(
-    *,
-    triggered_id: Any,
-    saved_bundles: Any,
-    bundle_name: str | None,
-    selected_bundle_id: str | None,
-    filters: DashboardFilters | None,
-    selected_row_ids: list[str] | None,
-) -> tuple[Any, Any, Any]:
-    bundles = normalize_saved_bundles(saved_bundles)
-    if triggered_id == "save-bundle":
-        clean_name = str(bundle_name or "").strip()
-        if not selected_row_ids:
-            return no_update, "Select at least one comparison before saving a bundle.", no_update
-        if not clean_name:
-            return no_update, "Enter a bundle name before saving.", no_update
-        if filters is None:
-            raise ValueError("filters are required when saving a bundle")
-        new_bundle = serialize_saved_bundle(clean_name, filters, list(selected_row_ids or []))
-        bundles = [bundle for bundle in bundles if bundle.name.lower() != clean_name.lower()]
-        bundles.insert(0, new_bundle)
-        bundles = bundles[:12]
-        return saved_bundles_payload(bundles), f'Saved bundle "{clean_name}".', ""
-    if triggered_id == "delete-bundle":
-        if not selected_bundle_id:
-            return no_update, "Choose a saved bundle to delete.", no_update
-        remaining = [bundle for bundle in bundles if bundle.id != selected_bundle_id]
-        if len(remaining) == len(bundles):
-            return no_update, "Saved bundle was not found.", no_update
-        return saved_bundles_payload(remaining), "Deleted saved bundle.", no_update
-    return no_update, no_update, no_update
-
-
-def _saved_bundle_search(load_clicks: int, selected_bundle_id: str | None, saved_bundles: Any) -> str | Any:
-    if not load_clicks or not selected_bundle_id:
-        return no_update
-    bundles = normalize_saved_bundles(saved_bundles)
-    for bundle in bundles:
-        if bundle.id == selected_bundle_id:
-            return bundle.search
-    return no_update
 
 
 def _metric_visibility(
@@ -275,10 +221,12 @@ def _selection_ids_from_tray(triggered_id: Any, selected_row_ids: list[str] | No
 
 def _effective_selected_ids(
     triggered_id: Any,
+    triggered_prop_ids: dict[str, Any] | None,
     url_selected_ids: list[str] | None,
     selected_row_ids: list[str] | None,
 ) -> list[str] | None:
-    if triggered_id == "url-selected-ids" and url_selected_ids:
+    url_triggered = isinstance(triggered_prop_ids, dict) and "url-selected-ids.data" in triggered_prop_ids
+    if url_selected_ids and (triggered_id == "url-selected-ids" or url_triggered):
         return list(url_selected_ids or [])
     return selected_row_ids
 
@@ -293,6 +241,67 @@ def _updated_url_search(
     if current_filter_search == next_search:
         return no_update
     return next_search
+
+
+def _share_link_search(filters: DashboardFilters, selected_row_ids: list[str] | None) -> str:
+    return encode_dashboard_state(filters, list(selected_row_ids or []))
+
+
+def _selected_rows_for_page(
+    rows: list[dict[str, Any]] | None,
+    selected_row_ids: list[str] | None,
+) -> list[int]:
+    if not rows or not selected_row_ids:
+        return []
+    selected_set = {str(selection_id) for selection_id in selected_row_ids}
+    selected_rows: list[int] = []
+    for index, row in enumerate(rows):
+        row_id = row.get("selection_id", row.get("id"))
+        if row_id in selected_set:
+            selected_rows.append(index)
+    return selected_rows
+
+
+def _search_has_selected_param(search: str | None) -> bool:
+    if not search:
+        return False
+    return "selected" in parse_qs(search.lstrip("?"), keep_blank_values=True)
+
+
+def _hydrated_selection_values(
+    search: str | None,
+    rows: list[dict[str, Any]] | None,
+) -> tuple[list[str] | Any, list[str] | Any, list[int] | Any]:
+    if not _search_has_selected_param(search):
+        return (no_update, no_update, no_update)
+    state = decode_dashboard_state(search)
+    selected_ids = list(state["selected_row_ids"] or [])
+    return (
+        selected_ids,
+        selected_ids,
+        _selected_rows_for_page(rows, selected_ids),
+    )
+
+
+def _selected_ids_for_current_page(
+    rows: list[dict[str, Any]] | None,
+    selected_rows: list[int] | None,
+    selected_row_ids: list[str] | None,
+) -> list[str]:
+    if not rows:
+        return []
+    page_ids = [str(row.get("selection_id", row.get("id"))) for row in rows]
+    selected_page_ids = [
+        page_ids[index]
+        for index in (selected_rows or [])
+        if isinstance(index, int) and 0 <= index < len(page_ids)
+    ]
+    retained_ids = [selection_id for selection_id in (selected_row_ids or []) if selection_id not in set(page_ids)]
+    ordered: list[str] = []
+    for selection_id in [*retained_ids, *selected_page_ids]:
+        if selection_id not in ordered:
+            ordered.append(selection_id)
+    return ordered
 
 
 def _prepare_leaderboard_export_frame(
@@ -334,13 +343,17 @@ def _register_callbacks(app: Dash, datasets: DashboardDatasets, out_dir: Path) -
         Output("era-filter", "value", allow_duplicate=True),
         Output("preset-filter", "value", allow_duplicate=True),
         Output("url-selected-ids", "data"),
+        Output("leaderboard-table", "selected_row_ids", allow_duplicate=True),
+        Output("leaderboard-table", "selected_rows", allow_duplicate=True),
         Input("dashboard-location", "search"),
+        State("leaderboard-table", "data"),
         prevent_initial_call=False,
     )
-    def _hydrate_from_url(search: str | None):
+    def _hydrate_from_url(search: str | None, current_rows: list[dict[str, Any]] | None):
         state = decode_dashboard_state(search)
         filters: DashboardFilters = state["filters"]
         values = filter_values_from_filters(filters)
+        hydrated_store, hydrated_ids, hydrated_rows = _hydrated_selection_values(search, current_rows)
         return (
             values["entity_mode"],
             values["ranking_metric"],
@@ -364,7 +377,9 @@ def _register_callbacks(app: Dash, datasets: DashboardDatasets, out_dir: Path) -
             values["season_type"],
             values["era"],
             values["preset"],
-            state["selected_row_ids"],
+            hydrated_store,
+            hydrated_ids,
+            hydrated_rows,
         )
 
     @app.callback(
@@ -373,7 +388,7 @@ def _register_callbacks(app: Dash, datasets: DashboardDatasets, out_dir: Path) -
         prevent_initial_call=True,
     )
     def _apply_quick_view(_clicks: list[int] | None):
-        return _quick_view_preset(ctx.triggered_id)
+        return _quick_view_preset(ctx.triggered_id, _clicks)
 
     @app.callback(
         Output("quick-view-bar", "children"),
@@ -408,128 +423,6 @@ def _register_callbacks(app: Dash, datasets: DashboardDatasets, out_dir: Path) -
     )
     def _apply_preset_value(preset: str | None, current_search: str | None):
         return _preset_filter_values(preset, current_search)
-
-    @app.callback(
-        Output("saved-bundle-select", "options"),
-        Output("saved-bundle-select", "value"),
-        Input("saved-bundles", "data"),
-        State("saved-bundle-select", "value"),
-    )
-    def _sync_saved_bundle_options(saved_bundles: Any, current_value: str | None):
-        return _saved_bundle_options(saved_bundles, current_value)
-
-    @app.callback(
-        Output("saved-bundles", "data"),
-        Output("bundle-status", "children"),
-        Output("bundle-name", "value"),
-        Input("save-bundle", "n_clicks"),
-        Input("delete-bundle", "n_clicks"),
-        State("saved-bundles", "data"),
-        State("bundle-name", "value"),
-        State("saved-bundle-select", "value"),
-        State("entity-mode", "value"),
-        State("ranking-metric", "value"),
-        State("time-mode", "value"),
-        State("burst-window", "value"),
-        State("analysis-mode", "value"),
-        State("analysis-window", "value"),
-        State("line-color-mode", "value"),
-        State("shot-markers", "value"),
-        State("include-ot", "value"),
-        State("competitive-only", "value"),
-        State("min-points", "value"),
-        State("min-competitive-share", "value"),
-        State("min-ts-pct", "value"),
-        State("min-efg-pct", "value"),
-        State("min-offensive-share", "value"),
-        State("player-filter", "value"),
-        State("team-filter", "value"),
-        State("opponent-filter", "value"),
-        State("season-filter", "value"),
-        State("season-type-filter", "value"),
-        State("era-filter", "value"),
-        State("preset-filter", "value"),
-        State("leaderboard-table", "selected_row_ids"),
-        prevent_initial_call=True,
-    )
-    def _manage_saved_bundles(
-        save_clicks: int,
-        delete_clicks: int,
-        saved_bundles: Any,
-        bundle_name: str | None,
-        selected_bundle_id: str | None,
-        entity_mode: str,
-        ranking_metric: str,
-        time_mode: str,
-        burst_window: int,
-        analysis_mode: str,
-        analysis_window: int,
-        line_color_mode: str,
-        shot_markers: list[str] | None,
-        include_ot: list[str] | None,
-        competitive_only: list[str] | None,
-        min_points: Any,
-        min_competitive_share: Any,
-        min_ts_pct: Any,
-        min_efg_pct: Any,
-        min_offensive_share: Any,
-        player: str | None,
-        team: str | None,
-        opponent: str | None,
-        season: str | None,
-        season_type: str | None,
-        era: str | None,
-        preset: str | None,
-        selected_row_ids: list[str] | None,
-    ):
-        filters: DashboardFilters | None = None
-        if ctx.triggered_id == "save-bundle":
-            filters = _build_filters_from_inputs(
-                entity_mode=entity_mode,
-                ranking_metric=ranking_metric,
-                time_mode=time_mode,
-                burst_window=burst_window,
-                analysis_mode=analysis_mode,
-                analysis_window=analysis_window,
-                line_color_mode=line_color_mode,
-                shot_markers=shot_markers,
-                include_ot=include_ot,
-                competitive_only=competitive_only,
-                min_points=min_points,
-                min_competitive_share=min_competitive_share,
-                min_ts_pct=min_ts_pct,
-                min_efg_pct=min_efg_pct,
-                min_offensive_share=min_offensive_share,
-                player=player,
-                team=team,
-                opponent=opponent,
-                season=season,
-                season_type=season_type,
-                era=era,
-                preset=preset,
-            )
-        return _saved_bundle_action(
-            triggered_id=ctx.triggered_id,
-            saved_bundles=saved_bundles,
-            bundle_name=bundle_name,
-            selected_bundle_id=selected_bundle_id,
-            filters=filters,
-            selected_row_ids=selected_row_ids,
-        )
-
-    @app.callback(
-        Output("dashboard-location", "search", allow_duplicate=True),
-        Input("load-bundle", "n_clicks"),
-        State("saved-bundle-select", "value"),
-        State("saved-bundles", "data"),
-        prevent_initial_call=True,
-    )
-    def _load_saved_bundle(
-        load_clicks: int,
-        selected_bundle_id: str | None,
-        saved_bundles: Any,
-    ):
-        return _saved_bundle_search(load_clicks, selected_bundle_id, saved_bundles)
 
     @app.callback(
         Output("ranking-metric", "options"),
@@ -590,6 +483,7 @@ def _register_callbacks(app: Dash, datasets: DashboardDatasets, out_dir: Path) -
         Output("chart-visual-key", "children"),
         Output("secondary-analysis-title", "children"),
         Output("secondary-analysis-note", "children"),
+        Output("share-link-search", "data"),
         Input("entity-mode", "value"),
         Input("ranking-metric", "value"),
         Input("time-mode", "value"),
@@ -614,8 +508,10 @@ def _register_callbacks(app: Dash, datasets: DashboardDatasets, out_dir: Path) -
         Input("preset-filter", "value"),
         Input("url-selected-ids", "data"),
         Input("leaderboard-table", "selected_row_ids"),
+        Input("leaderboard-table", "selected_rows"),
         Input("leaderboard-table", "sort_by"),
         Input("leaderboard-table", "page_current"),
+        State("leaderboard-table", "data"),
         State("leaderboard-table", "page_size"),
     )
     def _update_dashboard(
@@ -643,8 +539,10 @@ def _register_callbacks(app: Dash, datasets: DashboardDatasets, out_dir: Path) -
         preset: str | None,
         url_selected_ids: list[str] | None,
         selected_row_ids: list[str] | None,
+        selected_rows: list[int] | None,
         sort_by: list[dict[str, str]] | None,
         page_current: int,
+        current_rows: list[dict[str, Any]] | None,
         page_size: int,
     ):
         filters = _build_filters_from_inputs(
@@ -671,7 +569,15 @@ def _register_callbacks(app: Dash, datasets: DashboardDatasets, out_dir: Path) -
             era=era,
             preset=preset,
         )
-        effective_selected_ids = _effective_selected_ids(ctx.triggered_id, url_selected_ids, selected_row_ids)
+        current_selected_ids = selected_row_ids
+        if isinstance(ctx.triggered_prop_ids, dict) and "leaderboard-table.selected_rows" in ctx.triggered_prop_ids:
+            current_selected_ids = _selected_ids_for_current_page(current_rows, selected_rows, selected_row_ids)
+        effective_selected_ids = _effective_selected_ids(
+            ctx.triggered_id,
+            ctx.triggered_prop_ids,
+            url_selected_ids,
+            current_selected_ids,
+        )
         view = render_dashboard_view(
             datasets,
             out_dir,
@@ -700,7 +606,41 @@ def _register_callbacks(app: Dash, datasets: DashboardDatasets, out_dir: Path) -
             view["chart_visual_key"],
             view["secondary_title"],
             view["secondary_note"],
+            _share_link_search(filters, view["selected_ids"]),
         )
+
+    app.clientside_callback(
+        """
+        function(n_clicks, shareSearch, href) {
+            if (!n_clicks) {
+                return window.dash_clientside.no_update;
+            }
+            const baseHref = href || window.location.href;
+            const base = baseHref ? baseHref.split("?")[0] : window.location.origin + window.location.pathname;
+            const text = `${base}${shareSearch || ""}`;
+            try {
+                const textarea = document.createElement("textarea");
+                textarea.value = text;
+                textarea.setAttribute("readonly", "");
+                textarea.style.position = "fixed";
+                textarea.style.opacity = "0";
+                document.body.appendChild(textarea);
+                textarea.focus();
+                textarea.select();
+                document.execCommand("copy");
+                document.body.removeChild(textarea);
+                return "";
+            } catch (error) {
+                return "";
+            }
+        }
+        """,
+        Output("copy-link-feedback", "children"),
+        Input("copy-link", "n_clicks"),
+        State("share-link-search", "data"),
+        State("dashboard-location", "href"),
+        prevent_initial_call=True,
+    )
 
     @app.callback(
         Output("dashboard-location", "search"),

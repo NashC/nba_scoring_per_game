@@ -1,12 +1,10 @@
 from __future__ import annotations
 
 from collections import OrderedDict
-from dataclasses import asdict, dataclass
-from datetime import datetime, UTC
+from dataclasses import dataclass
 import math
 from typing import Any
 from urllib.parse import parse_qs, urlencode
-from uuid import uuid4
 
 import pandas as pd
 
@@ -15,7 +13,6 @@ from .loader import DashboardDatasets
 from .team_logos import resolve_team_logo_asset_src
 
 MAX_COMPARISONS = 4
-MAX_SAVED_BUNDLES = 12
 FILTER_CACHE_SIZE = 128
 DEFAULT_ENTITY_MODE = "game"
 DEFAULT_ANALYSIS_MODE = "none"
@@ -290,14 +287,6 @@ class DashboardSelection:
     payload: dict[str, Any]
 
 
-@dataclass(slots=True)
-class SavedBundle:
-    id: str
-    name: str
-    search: str
-    saved_at: str
-
-
 def normalize_filters(**kwargs: Any) -> DashboardFilters:
     entity_mode = str(kwargs.get("entity_mode") or DEFAULT_ENTITY_MODE).strip().lower()
     if entity_mode not in VALID_ENTITY_MODES:
@@ -387,33 +376,6 @@ def _normalize_ranking_metric_for_mode(entity_mode: str, ranking_metric: Any) ->
     if metric in _valid_ranking_metrics(normalized):
         return metric
     return default_metric
-
-
-def serialize_saved_bundle(name: str, filters: DashboardFilters, selected_ids: list[str] | None) -> SavedBundle:
-    return SavedBundle(
-        id=f"bundle-{uuid4().hex[:12]}",
-        name=str(name).strip(),
-        search=encode_dashboard_state(filters, list(selected_ids or [])),
-        saved_at=datetime.now(UTC).isoformat(),
-    )
-
-
-def normalize_saved_bundles(payload: Any) -> list[SavedBundle]:
-    if not isinstance(payload, list):
-        return []
-    bundles: list[SavedBundle] = []
-    for item in payload:
-        if not isinstance(item, dict):
-            continue
-        bundle_id = _clean_text(item.get("id"))
-        name = _clean_text(item.get("name"))
-        search = _clean_text(item.get("search"))
-        saved_at = _clean_text(item.get("saved_at"))
-        if not bundle_id or not name or search is None or saved_at is None:
-            continue
-        bundles.append(SavedBundle(id=bundle_id, name=name, search=search, saved_at=saved_at))
-    bundles.sort(key=lambda bundle: bundle.saved_at, reverse=True)
-    return bundles[:MAX_SAVED_BUNDLES]
 
 
 def filter_summary_frame(datasets: DashboardDatasets, filters: DashboardFilters) -> pd.DataFrame:
@@ -1265,6 +1227,3 @@ def _finite_or_none(value: Any) -> Any:
         return None
     return value
 
-
-def saved_bundles_payload(bundles: list[SavedBundle]) -> list[dict[str, str]]:
-    return [asdict(bundle) for bundle in bundles]

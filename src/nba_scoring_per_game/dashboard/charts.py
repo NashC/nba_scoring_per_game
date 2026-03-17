@@ -30,7 +30,7 @@ MARGIN_COLORS = {
 PACE_BENCHMARKS = [50, 60, 70, 80, 100]
 
 
-def build_empty_figure(message: str, *, height: int = 560) -> go.Figure:
+def build_empty_figure(message: str, *, height: int = 540) -> go.Figure:
     figure = go.Figure()
     figure.update_layout(
         template="plotly_white",
@@ -152,8 +152,8 @@ def build_trajectory_figure(
             "bgcolor": "#1f1b18",
             "font": {"family": "Avenir Next, Trebuchet MS, Helvetica Neue, sans-serif", "color": "#fffaf2"},
         },
-        margin={"l": 60, "r": 24, "t": 20, "b": 112},
-        height=560,
+        margin={"l": 60, "r": 24, "t": 16, "b": 104},
+        height=540,
         legend={
             "orientation": "h",
             "yanchor": "top",
@@ -166,7 +166,7 @@ def build_trajectory_figure(
             "entrywidthmode": "pixels",
             "tracegroupgap": 10,
         },
-        xaxis={"title": {"text": x_title, "standoff": 54}, "gridcolor": GRID, "zeroline": False},
+        xaxis={"title": {"text": x_title, "standoff": 48}, "gridcolor": GRID, "zeroline": False},
         yaxis={"title": _y_axis_title(filters.entity_mode), "gridcolor": GRID, "zeroline": False},
     )
     if filters.entity_mode == "game" and filters.time_mode == "raw":

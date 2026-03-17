@@ -1,6 +1,5 @@
 from .dashboard import (
     DashboardDatasets,
-    SavedBundle,
     apply_dashboard_preset,
     build_enriched_detail_cards,
     build_rolling_analysis_series,
@@ -11,9 +10,7 @@ from .dashboard import (
     encode_dashboard_state,
     load_dashboard_datasets,
     load_selected_timelines,
-    normalize_saved_bundles,
     render_dashboard_view,
-    serialize_saved_bundle,
 )
 from .pipeline import (
     DATASET_METADATA_FILENAME,
@@ -51,7 +48,6 @@ __all__ = [
     "DATASET_METADATA_FILENAME",
     "DATASET_SCHEMA_VERSION",
     "DashboardDatasets",
-    "SavedBundle",
     "add_game_time_columns",
     "add_score_context_columns",
     "apply_dashboard_preset",
@@ -76,11 +72,9 @@ __all__ = [
     "load_dashboard_datasets",
     "load_dataset",
     "load_selected_timelines",
-    "normalize_saved_bundles",
     "process_game",
     "query_player_games",
     "render_dashboard_view",
-    "serialize_saved_bundle",
     "summarize_player_bursts",
     "summarize_player_games",
     "summarize_player_halves",

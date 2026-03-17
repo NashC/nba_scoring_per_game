@@ -260,7 +260,7 @@ The repo now also includes a Dash app package under [`dashboard/`](/Users/nash/D
 - optional shot markers and margin-context coloring
 - a secondary analysis panel for rolling burst windows and projected pace
 - URL-persisted dashboard state and preset filters
-- local saved bundles that restore a dashboard view from browser storage
+- shareable links that restore a dashboard view from URL state
 - a compact filters-and-compare bar at the top of the dashboard
 - rich detail cards for the current selection set
 

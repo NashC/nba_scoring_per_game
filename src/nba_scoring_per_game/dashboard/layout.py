@@ -63,7 +63,7 @@ def build_dashboard_layout(datasets: DashboardDatasets) -> html.Div:
                 dcc.Location(id="dashboard-location", refresh=False),
                 dcc.Download(id="leaderboard-download"),
                 dcc.Store(id="url-selected-ids"),
-                dcc.Store(id="saved-bundles", storage_type="local"),
+                dcc.Store(id="share-link-search"),
                 html.Div(
                     className="empty-state-card",
                     children=[
@@ -83,7 +83,7 @@ def build_dashboard_layout(datasets: DashboardDatasets) -> html.Div:
                         ),
                         html.P(
                             "Backfill the curated parquet outputs first, then launch the app locally. "
-                            "Once data is available, use quick views, leaderboard selection, and saved bundles "
+                            "Once data is available, use quick views, leaderboard selection, and shareable links "
                             "directly inside the dashboard.",
                             className="empty-state-text",
                         ),
@@ -101,6 +101,7 @@ def build_dashboard_layout(datasets: DashboardDatasets) -> html.Div:
         page_size=10,
     )
     initial_selected_ids = [initial_records[0]["id"]] if initial_records else []
+    initial_selected_rows = [0] if initial_records else []
     initial_selected_records = select_records(initial_records, initial_selected_ids)
     initial_timelines = load_selected_timelines(datasets.out_dir, initial_selected_records)
     initial_primary_figure = (
@@ -125,7 +126,7 @@ def build_dashboard_layout(datasets: DashboardDatasets) -> html.Div:
             dcc.Location(id="dashboard-location", refresh=False),
             dcc.Download(id="leaderboard-download"),
             dcc.Store(id="url-selected-ids"),
-            dcc.Store(id="saved-bundles", storage_type="local"),
+            dcc.Store(id="share-link-search"),
             html.Div(
                 className="hero-panel",
                 children=[
@@ -363,13 +364,9 @@ def build_dashboard_layout(datasets: DashboardDatasets) -> html.Div:
                                                 children=[
                                                     html.H2("Leaderboard", className="panel-title"),
                                                     html.P(
-                                                        "Use quick views for preset workflows, then select up to 4 rows to compare. "
-                                                        "The active ranking metric is highlighted in the table.",
+                                                        "Preset views and row selection power up to 4-way comparison. "
+                                                        "* marks legacy estimates.",
                                                         className="panel-caption",
-                                                    ),
-                                                    html.P(
-                                                        "* marks values estimated from manual legacy reconstructions.",
-                                                        className="panel-caption panel-caption-note",
                                                     ),
                                                 ]
                                             ),
@@ -387,6 +384,7 @@ def build_dashboard_layout(datasets: DashboardDatasets) -> html.Div:
                                         tooltip_delay=0,
                                         tooltip_duration=None,
                                         selected_row_ids=initial_selected_ids,
+                                        selected_rows=initial_selected_rows,
                                         row_selectable="multi",
                                         page_action="custom",
                                         page_current=0,
@@ -396,7 +394,6 @@ def build_dashboard_layout(datasets: DashboardDatasets) -> html.Div:
                                         style_as_list_view=True,
                                         page_size=10,
                                         page_count=initial_styles["page_count"],
-                                        fixed_columns={"headers": True, "data": 3},
                                         markdown_options={"html": True},
                                         style_table={"overflowX": "auto", "minWidth": "100%"},
                                         style_header={
@@ -404,8 +401,8 @@ def build_dashboard_layout(datasets: DashboardDatasets) -> html.Div:
                                             "fontWeight": 700,
                                             "border": "none",
                                             "color": "#1f1b18",
-                                            "fontSize": "0.94rem",
-                                            "padding": "8px 6px",
+                                            "fontSize": "0.9rem",
+                                            "padding": "6px 6px",
                                         },
                                         style_header_conditional=initial_styles["style_header_conditional"],
                                         style_cell={
@@ -413,9 +410,9 @@ def build_dashboard_layout(datasets: DashboardDatasets) -> html.Div:
                                             "border": "none",
                                             "color": "#1f1b18",
                                             "fontFamily": "Avenir Next, Trebuchet MS, Helvetica Neue, sans-serif",
-                                            "fontSize": "0.95rem",
+                                            "fontSize": "0.92rem",
                                             "lineHeight": "1.1",
-                                            "padding": "6px 6px",
+                                            "padding": "5px 6px",
                                             "textAlign": "left",
                                         },
                                         style_cell_conditional=initial_styles["style_cell_conditional"],
@@ -430,7 +427,7 @@ def build_dashboard_layout(datasets: DashboardDatasets) -> html.Div:
                                         className="panel-header",
                                         children=[
                                             html.H2("Selection Details", className="panel-title"),
-                                            html.P("Summary metrics update with the active comparison set.", className="panel-caption"),
+                                            html.P("Metrics track the active comparison set.", className="panel-caption"),
                                         ],
                                     ),
                                     html.Div(initial_details, id="detail-panel-content", className="detail-panel-content"),
@@ -442,53 +439,31 @@ def build_dashboard_layout(datasets: DashboardDatasets) -> html.Div:
                         className="chart-panel",
                         children=[
                             html.Div(
-                                className="panel-header",
-                                children=[
-                                    html.H2("Historic Scoring Trajectories", className="panel-title"),
-                                    html.P(
-                                        "The main chart stays cumulative. Use the summary strip for fast context, "
-                                        "keep lines for player comparison, and let marker colors explain shot type.",
-                                        className="panel-caption",
-                                    ),
-                                ],
-                            ),
-                            html.Div(
-                                className="bundle-toolbar",
+                                className="panel-header panel-header-row",
                                 children=[
                                     html.Div(
-                                        className="bundle-toolbar-inputs",
                                         children=[
-                                            dcc.Input(
-                                                id="bundle-name",
-                                                type="text",
-                                                value="",
-                                                placeholder="Save current comparison bundle",
-                                                className="bundle-name-input",
+                                            html.H2("Historic Scoring Trajectories", className="panel-title"),
+                                            html.P(
+                                                "Cumulative scoring curves with comparison controls and shot-type markers.",
+                                                className="panel-caption",
                                             ),
-                                            html.Button("Save Bundle", id="save-bundle", className="panel-button", n_clicks=0),
-                                        ],
+                                        ]
                                     ),
                                     html.Div(
-                                        className="bundle-toolbar-actions",
+                                        className="panel-actions",
                                         children=[
-                                            dcc.Dropdown(
-                                                id="saved-bundle-select",
-                                                options=[],
-                                                value=None,
-                                                placeholder="Saved bundles",
-                                                clearable=True,
-                                                className="saved-bundle-select",
+                                            html.Button(
+                                                "Copy Link",
+                                                id="copy-link",
+                                                className="panel-button",
+                                                n_clicks=0,
+                                                title="Copy a shareable link to the current filters and comparison set",
                                             ),
-                                            html.Button("Load", id="load-bundle", className="panel-button", n_clicks=0),
-                                            html.Button("Delete", id="delete-bundle", className="panel-button panel-button-muted", n_clicks=0),
+                                            html.Div(id="copy-link-feedback", style={"display": "none"}),
                                         ],
                                     ),
                                 ],
-                            ),
-                            html.Div(
-                                "Bundles save the current filters and selected comparisons in this browser only.",
-                                id="bundle-status",
-                                className="bundle-status",
                             ),
                             html.Div(id="comparison-tray", className="comparison-tray", children=build_comparison_tray(initial_selected_records)),
                             html.Div(id="chart-summary-strip", className="chart-summary-strip", children=initial_chart_summary),
@@ -703,7 +678,7 @@ def build_detail_card(record: dict[str, Any], entity_mode: str, timeline_df):
                 className="detail-grid",
                 children=[
                     html.Div(
-                        className="detail-stat",
+                        className=_detail_stat_class(label),
                         children=[
                             html.Div(_metric_label(label, estimated), className="detail-stat-label"),
                             html.Div(value, className="detail-stat-value"),
@@ -748,7 +723,7 @@ def build_comparison_tray(selected_records: list[dict[str, Any]]):
     actions = html.Div(
         className="comparison-actions",
         children=[
-            html.Span("Use Tab and Enter to remove chips or step back one selection.", className="comparison-help"),
+            html.Span("Tab/Enter removes chips; Remove Last steps back.", className="comparison-help"),
             html.Button("Remove Last", id="remove-last-comparison", className="clear-comparisons-button", n_clicks=0, accessKey="r"),
             html.Button("Clear All", id="clear-comparisons", className="clear-comparisons-button", n_clicks=0, accessKey="c"),
         ],
@@ -759,6 +734,8 @@ def build_comparison_tray(selected_records: list[dict[str, Any]]):
 def build_chart_summary_strip(selected_records: list[dict[str, Any]], entity_mode: str):
     if not selected_records:
         return html.Div("Select one or more leaderboard rows to populate the chart summary.", className="chart-summary-empty")
+    if len(selected_records) == 1:
+        return []
 
     cards = []
     for index, record in enumerate(selected_records[:4]):
@@ -861,12 +838,21 @@ def build_chart_visual_key(filters: DashboardFilters):
 
 
 def build_quick_view_bar(active_preset: str | None):
+    short_labels = {
+        "top_scoring_games": "Top Games",
+        "70_plus_games": "70+",
+        "best_quarters": "Qtrs",
+        "best_halves": "Halves",
+        "best_3_min_bursts": "3m Bursts",
+        "competitive_60_plus_games": "Comp 60+",
+    }
     return [
         html.Button(
-            option["label"],
+            short_labels.get(option["value"], option["label"]),
             id={"type": "quick-view-button", "preset": option["value"]},
             className="quick-view-button quick-view-button-active" if option["value"] == active_preset else "quick-view-button",
             n_clicks=0,
+            title=option["label"],
         )
         for option in build_quick_view_options()
     ]
@@ -940,12 +926,19 @@ def _detail_badges(
             labels.append(best_burst)
         competitive = record.get("competitive_scoring_share")
         if competitive not in {None, "", "None"}:
-            labels.append(f"Competitive {_pct(competitive)}")
+            labels.append(f"Comp {_pct(competitive)}")
     elif entity_mode == "burst":
         labels.append(str(record.get("burst_window_label", "Burst Window")))
     if context.get("trailing_share") not in {None, "", "None"}:
         labels.append(f"Trailing {_pct(context['trailing_share'])}")
     return [html.Span(label, className="detail-mini-badge") for label in labels[:4]]
+
+
+def _detail_stat_class(label: str) -> str:
+    classes = ["detail-stat"]
+    if label in {"Shot Mix", "Burst Start", "Burst End"}:
+        classes.append("detail-stat-wide")
+    return " ".join(classes)
 
 
 def _dropdown(label: str, component_id: str, options: list[dict[str, Any]], value: Any, clearable: bool) -> html.Div:

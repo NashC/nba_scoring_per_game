@@ -7,28 +7,29 @@ import pandas as pd
 
 from nba_scoring_per_game.dashboard.app import (
     _effective_selected_ids,
+    _hydrated_selection_values,
     _metric_visibility,
     _prepare_leaderboard_export_frame,
     _preset_filter_values,
     _quick_view_preset,
-    _saved_bundle_action,
-    _saved_bundle_options,
-    _saved_bundle_search,
+    _search_has_selected_param,
+    _selected_ids_for_current_page,
+    _selected_rows_for_page,
     _selection_ids_from_tray,
+    _share_link_search,
     _updated_url_search,
 )
-from nba_scoring_per_game.dashboard.state import DashboardFilters, apply_dashboard_preset, encode_dashboard_state, serialize_saved_bundle
-
-
-def _bundle_payload(name: str, filters: DashboardFilters, selected_ids: list[str] | None) -> dict[str, str]:
-    bundle = serialize_saved_bundle(name, filters, selected_ids)
-    return {"id": bundle.id, "name": bundle.name, "search": bundle.search, "saved_at": bundle.saved_at}
+from nba_scoring_per_game.dashboard.state import DashboardFilters, apply_dashboard_preset, encode_dashboard_state
 
 
 class DashboardCallbackTests(unittest.TestCase):
     def test_quick_view_preset_uses_triggered_button_payload(self) -> None:
-        self.assertEqual(_quick_view_preset({"type": "quick-view-button", "preset": "best_3_min_bursts"}), "best_3_min_bursts")
+        self.assertEqual(
+            _quick_view_preset({"type": "quick-view-button", "preset": "best_3_min_bursts"}, [0, 1, 0]),
+            "best_3_min_bursts",
+        )
         self.assertIs(_quick_view_preset("preset-filter"), no_update)
+        self.assertIs(_quick_view_preset({"type": "quick-view-button", "preset": "top_scoring_games"}, [0, 0, 0]), no_update)
 
     def test_preset_filter_values_noops_for_empty_or_matching_preset(self) -> None:
         noop_values = _preset_filter_values(None, None)
@@ -49,104 +50,57 @@ class DashboardCallbackTests(unittest.TestCase):
         self.assertEqual(values[8], 60)
         self.assertEqual(values[9], 0.75)
 
-    def test_saved_bundle_options_preserve_valid_selection(self) -> None:
-        filters = DashboardFilters(entity_mode="game", ranking_metric="ts_pct")
-        bundle = _bundle_payload("TS Leaders", filters, ["game:g1:1"])
+    def test_share_link_search_includes_filters_and_selected_rows(self) -> None:
+        filters = DashboardFilters(entity_mode="burst", ranking_metric="points_in_window", burst_window=180)
+        search = _share_link_search(filters, ["burst:g2:2"])
 
-        options, value = _saved_bundle_options([bundle], bundle["id"])
+        self.assertEqual(search, encode_dashboard_state(filters, ["burst:g2:2"]))
 
-        self.assertEqual(options, [{"label": "TS Leaders", "value": bundle["id"]}])
-        self.assertEqual(value, bundle["id"])
+    def test_selected_rows_for_page_maps_selected_ids_to_current_page_indices(self) -> None:
+        rows = [
+            {"selection_id": "game:g1:1"},
+            {"selection_id": "game:g2:2"},
+            {"selection_id": "game:g3:3"},
+        ]
 
-    def test_saved_bundle_action_save_requires_selection_and_name(self) -> None:
-        filters = DashboardFilters()
-        payload, message, name_value = _saved_bundle_action(
-            triggered_id="save-bundle",
-            saved_bundles=[],
-            bundle_name="Core Set",
-            selected_bundle_id=None,
-            filters=filters,
-            selected_row_ids=[],
+        self.assertEqual(_selected_rows_for_page(rows, ["game:g1:1", "game:g3:3"]), [0, 2])
+        self.assertEqual(_selected_rows_for_page(rows, ["game:missing"]), [])
+        self.assertEqual(_selected_rows_for_page([], ["game:g1:1"]), [])
+
+    def test_search_has_selected_param_only_when_query_contains_selected_key(self) -> None:
+        self.assertFalse(_search_has_selected_param(None))
+        self.assertFalse(_search_has_selected_param("?mode=game&rank=total_points"))
+        self.assertTrue(_search_has_selected_param("?mode=game&selected=game:g1:1"))
+
+    def test_hydrated_selection_values_only_updates_table_state_for_explicit_selected_query(self) -> None:
+        rows = [
+            {"selection_id": "game:g1:1"},
+            {"selection_id": "game:g2:2"},
+            {"selection_id": "game:g3:3"},
+        ]
+
+        self.assertEqual(
+            _hydrated_selection_values("?mode=game&selected=game:g1:1,game:g3:3", rows),
+            (["game:g1:1", "game:g3:3"], ["game:g1:1", "game:g3:3"], [0, 2]),
         )
-        self.assertIs(payload, no_update)
-        self.assertEqual(message, "Select at least one comparison before saving a bundle.")
-        self.assertIs(name_value, no_update)
-
-        payload, message, name_value = _saved_bundle_action(
-            triggered_id="save-bundle",
-            saved_bundles=[],
-            bundle_name="   ",
-            selected_bundle_id=None,
-            filters=filters,
-            selected_row_ids=["game:g1:1"],
-        )
-        self.assertIs(payload, no_update)
-        self.assertEqual(message, "Enter a bundle name before saving.")
-        self.assertIs(name_value, no_update)
-
-    def test_saved_bundle_action_save_replaces_same_name(self) -> None:
-        existing = _bundle_payload("Core Set", DashboardFilters(entity_mode="game"), ["game:g1:1"])
-
-        payload, message, name_value = _saved_bundle_action(
-            triggered_id="save-bundle",
-            saved_bundles=[existing],
-            bundle_name="Core Set",
-            selected_bundle_id=None,
-            filters=DashboardFilters(entity_mode="burst", ranking_metric="points_in_window", burst_window=180),
-            selected_row_ids=["burst:g2:2"],
+        self.assertEqual(
+            _hydrated_selection_values("?mode=game&rank=total_points", rows),
+            (no_update, no_update, no_update),
         )
 
-        self.assertEqual(len(payload), 1)
-        self.assertEqual(payload[0]["name"], "Core Set")
-        self.assertIn("selected=burst%3Ag2%3A2", payload[0]["search"])
-        self.assertEqual(message, 'Saved bundle "Core Set".')
-        self.assertEqual(name_value, "")
+    def test_selected_ids_for_current_page_merges_current_page_rows_with_existing_cross_page_selection(self) -> None:
+        rows = [
+            {"selection_id": "game:g1:1"},
+            {"selection_id": "game:g2:2"},
+            {"selection_id": "game:g3:3"},
+        ]
 
-    def test_saved_bundle_action_delete_handles_missing_and_success(self) -> None:
-        existing = _bundle_payload("Core Set", DashboardFilters(entity_mode="game"), ["game:g1:1"])
-
-        payload, message, name_value = _saved_bundle_action(
-            triggered_id="delete-bundle",
-            saved_bundles=[existing],
-            bundle_name=None,
-            selected_bundle_id=None,
-            filters=None,
-            selected_row_ids=None,
+        self.assertEqual(
+            _selected_ids_for_current_page(rows, [0, 2], ["game:other:9", "game:g1:1"]),
+            ["game:other:9", "game:g1:1", "game:g3:3"],
         )
-        self.assertIs(payload, no_update)
-        self.assertEqual(message, "Choose a saved bundle to delete.")
-        self.assertIs(name_value, no_update)
-
-        payload, message, name_value = _saved_bundle_action(
-            triggered_id="delete-bundle",
-            saved_bundles=[existing],
-            bundle_name=None,
-            selected_bundle_id=existing["id"],
-            filters=None,
-            selected_row_ids=None,
-        )
-        self.assertEqual(payload, [])
-        self.assertEqual(message, "Deleted saved bundle.")
-        self.assertIs(name_value, no_update)
-
-    def test_saved_bundle_action_noops_for_unhandled_trigger(self) -> None:
-        result = _saved_bundle_action(
-            triggered_id="bundle-status",
-            saved_bundles=[],
-            bundle_name=None,
-            selected_bundle_id=None,
-            filters=None,
-            selected_row_ids=None,
-        )
-
-        self.assertEqual(result, (no_update, no_update, no_update))
-
-    def test_saved_bundle_search_handles_missing_and_found_bundles(self) -> None:
-        bundle = _bundle_payload("Core Set", DashboardFilters(entity_mode="game"), ["game:g1:1"])
-
-        self.assertIs(_saved_bundle_search(0, bundle["id"], [bundle]), no_update)
-        self.assertIs(_saved_bundle_search(1, None, [bundle]), no_update)
-        self.assertEqual(_saved_bundle_search(1, bundle["id"], [bundle]), bundle["search"])
+        self.assertEqual(_selected_ids_for_current_page(rows, [], ["game:g1:1"]), [])
+        self.assertEqual(_selected_ids_for_current_page([], [0], ["game:g1:1"]), [])
 
     def test_metric_visibility_applies_mode_specific_toggles(self) -> None:
         burst_values = _metric_visibility("burst", "bad_metric", "none", "margin")
@@ -176,10 +130,21 @@ class DashboardCallbackTests(unittest.TestCase):
 
     def test_effective_selected_ids_prioritizes_url_trigger(self) -> None:
         self.assertEqual(
-            _effective_selected_ids("url-selected-ids", ["game:g1:1"], ["game:g2:2"]),
+            _effective_selected_ids("url-selected-ids", None, ["game:g1:1"], ["game:g2:2"]),
             ["game:g1:1"],
         )
-        self.assertEqual(_effective_selected_ids("leaderboard-table", ["game:g1:1"], ["game:g2:2"]), ["game:g2:2"])
+        self.assertEqual(_effective_selected_ids("leaderboard-table", None, ["game:g1:1"], ["game:g2:2"]), ["game:g2:2"])
+
+    def test_effective_selected_ids_honors_url_selection_when_url_store_is_among_triggered_inputs(self) -> None:
+        self.assertEqual(
+            _effective_selected_ids(
+                "entity-mode",
+                {"url-selected-ids.data": "url-selected-ids.data", "entity-mode.value": "entity-mode.value"},
+                ["game:g1:1", "game:g2:2"],
+                ["game:g3:3"],
+            ),
+            ["game:g1:1", "game:g2:2"],
+        )
 
     def test_updated_url_search_returns_no_update_when_search_is_unchanged(self) -> None:
         filters = DashboardFilters(entity_mode="game", ranking_metric="ts_pct")
