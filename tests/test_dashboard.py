@@ -275,6 +275,17 @@ class DashboardTests(unittest.TestCase):
             self.assertIsNotNone(table.tooltip_data)
             self.assertIn("game_date_display", table.tooltip_header)
 
+    def test_dashboard_callback_wiring_keeps_selection_updates_out_of_table_refresh_callback(self) -> None:
+        with TemporaryDirectory() as tmpdir:
+            build_test_outputs(tmpdir)
+            app = create_dashboard_app(tmpdir)
+
+            comparison_callback = next(key for key in app.callback_map if "comparison-chart.figure" in key)
+            table_callback = next(key for key in app.callback_map if "leaderboard-table.data" in key)
+
+            self.assertNotIn("leaderboard-table.data", comparison_callback)
+            self.assertNotIn("comparison-chart.figure", table_callback)
+
     def test_create_dashboard_app_empty_state_without_outputs(self) -> None:
         with TemporaryDirectory() as tmpdir:
             app = create_dashboard_app(tmpdir)

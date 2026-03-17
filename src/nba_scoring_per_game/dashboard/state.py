@@ -481,6 +481,26 @@ def select_records(
     return selected[:max_comparisons] or [records[0]]
 
 
+def build_selected_records(
+    summary_df: pd.DataFrame,
+    filters: DashboardFilters,
+    selected_row_ids: list[str] | None,
+    sort_by: list[dict[str, str]] | None = None,
+    max_comparisons: int = MAX_COMPARISONS,
+) -> list[dict[str, Any]]:
+    if summary_df.empty:
+        return []
+    ranking_metric = _normalize_ranking_metric_for_mode(filters.entity_mode, filters.ranking_metric)
+    column_specs = _leaderboard_column_specs(filters.entity_mode, ranking_metric)
+    working = summary_df.copy()
+    working["rank"] = range(1, len(working) + 1)
+    working["entity_label"] = _entity_labels_for_frame(working, filters.entity_mode)
+    working["selection_id"] = _selection_ids_for_frame(working, filters.entity_mode)
+    working["id"] = working["selection_id"]
+    working = _sort_leaderboard_rows(working, column_specs, sort_by)
+    return select_records(working.to_dict(orient="records"), selected_row_ids, max_comparisons=max_comparisons)
+
+
 def selection_from_record(record: dict[str, Any], entity_mode: str) -> DashboardSelection:
     return DashboardSelection(
         entity_mode=entity_mode,
@@ -731,14 +751,49 @@ def _prepare_leaderboard_dataframe(
         return pd.DataFrame(), column_specs
     working = summary_df.copy()
     working["rank"] = range(1, len(working) + 1)
-    working["entity_label"] = working.apply(lambda row: entity_label_from_row(row, filters.entity_mode), axis=1)
-    working["selection_id"] = working.apply(lambda row: selection_id_from_row(row, filters.entity_mode), axis=1)
+    working["entity_label"] = _entity_labels_for_frame(working, filters.entity_mode)
+    working["selection_id"] = _selection_ids_for_frame(working, filters.entity_mode)
     working["id"] = working["selection_id"]
     working = _sort_leaderboard_rows(working, column_specs, sort_by)
     for column_id, _, column_type in column_specs:
         display_id = _display_id(column_id)
         working[display_id] = _format_display_series(working, column_id, column_type, filters.entity_mode)
     return working, column_specs
+
+
+def _entity_labels_for_frame(df: pd.DataFrame, entity_mode: str) -> pd.Series:
+    if entity_mode == "game":
+        return pd.Series("Full Game", index=df.index, dtype="object")
+    if entity_mode == "quarter":
+        return df.get("quarter_label", pd.Series(index=df.index, dtype="object")).fillna("").astype(str)
+    if entity_mode == "half":
+        return df.get("half_label", pd.Series(index=df.index, dtype="object")).fillna("").astype(str)
+    burst_labels = df.get("burst_window_label", pd.Series(index=df.index, dtype="object")).fillna("").astype(str)
+    return burst_labels + " burst"
+
+
+def _selection_ids_for_frame(df: pd.DataFrame, entity_mode: str) -> pd.Series:
+    game_ids = df.get("game_id", pd.Series(index=df.index, dtype="object")).fillna("").astype(str)
+    player_ids = _int_string_series(df.get("player_id", pd.Series(index=df.index, dtype="object")))
+    if entity_mode == "game":
+        return "game:" + game_ids + ":" + player_ids
+    if entity_mode == "quarter":
+        quarter_numbers = _int_string_series(df.get("quarter_number", pd.Series(index=df.index, dtype="object")))
+        return "quarter:" + game_ids + ":" + player_ids + ":q" + quarter_numbers
+    if entity_mode == "half":
+        half_indexes = _int_string_series(df.get("half_index", pd.Series(index=df.index, dtype="object")))
+        return "half:" + game_ids + ":" + player_ids + ":h" + half_indexes
+    burst_windows = _int_string_series(df.get("burst_window_seconds", pd.Series(index=df.index, dtype="object")))
+    burst_starts = pd.to_numeric(
+        df.get("window_start_seconds_in_game", pd.Series(index=df.index, dtype="object")),
+        errors="coerce",
+    ).map(lambda value: "" if pd.isna(value) else f"{float(value):.1f}")
+    return "burst:" + game_ids + ":" + player_ids + ":" + burst_windows + ":" + burst_starts
+
+
+def _int_string_series(series: pd.Series) -> pd.Series:
+    numeric = pd.to_numeric(series, errors="coerce")
+    return numeric.map(lambda value: "" if pd.isna(value) else str(int(value)))
 
 
 def _sort_leaderboard_rows(
@@ -1226,4 +1281,3 @@ def _finite_or_none(value: Any) -> Any:
     if isinstance(value, float) and not math.isfinite(value):
         return None
     return value
-
